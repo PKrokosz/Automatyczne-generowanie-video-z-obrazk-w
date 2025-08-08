@@ -1,0 +1,8 @@
+moviepy
+numpy
+pytesseract
+librosa
+opencv-python
+Pillow
+soundfile
+pytest
