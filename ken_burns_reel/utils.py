@@ -3,17 +3,37 @@ from __future__ import annotations
 
 from typing import Tuple
 
+import re
+from typing import TYPE_CHECKING
 from PIL import Image
-from moviepy.editor import CompositeVideoClip, ImageClip, TextClip
+
+if TYPE_CHECKING:  # pragma: no cover - for type hints only
+    from moviepy.editor import CompositeVideoClip, ImageClip, TextClip
+
+# Caption configuration
+CAPTION_MAXLEN = 120
+CAPTION_MIN_ALNUM = 3
 
 
-def overlay_caption(clip: ImageClip, text: str, size: Tuple[int, int]) -> ImageClip:
+def sanitize_caption(text: str) -> str:
+    text = re.sub(r"[\\]+", "", text or "")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:CAPTION_MAXLEN]
+
+
+def is_caption_meaningful(text: str) -> bool:
+    return sum(ch.isalnum() for ch in (text or "")) >= CAPTION_MIN_ALNUM
+
+
+def overlay_caption(clip: "ImageClip", text: str, size: Tuple[int, int]) -> "ImageClip":
     """Overlay text caption onto a clip."""
-    if not text:
+    from moviepy.editor import CompositeVideoClip, ImageClip, TextClip
+    text = sanitize_caption(text)
+    if not is_caption_meaningful(text):
         return clip
     W, H = size
-    txt = (
-        TextClip(
+    try:
+        txt = TextClip(
             text,
             fontsize=50,
             color="white",
@@ -22,11 +42,17 @@ def overlay_caption(clip: ImageClip, text: str, size: Tuple[int, int]) -> ImageC
             method="caption",
             size=(W - 100, None),
         )
-        .set_position(("center", H - 200))
-        .set_duration(clip.duration)
-        .fadein(0.5)
-        .fadeout(0.5)
-    )
+    except Exception as e:
+        print(f"⚠️ TextClip fallback to 'label': {e}")
+        txt = TextClip(
+            text,
+            fontsize=50,
+            color="white",
+            stroke_color="black",
+            stroke_width=2,
+            method="label",
+        )
+    txt = txt.set_position(("center", H - 200)).set_duration(clip.duration).fadein(0.3).fadeout(0.3)
     return CompositeVideoClip([clip, txt], size=size)
 
 
