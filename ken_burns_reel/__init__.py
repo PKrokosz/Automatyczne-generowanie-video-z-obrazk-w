@@ -1,5 +1,9 @@
 """Ken Burns reel package."""
 
-from .builder import make_filmstrip
-
 __all__ = ["make_filmstrip"]
+
+
+def make_filmstrip(*args, **kwargs):
+    from .builder import make_filmstrip as _make_filmstrip
+
+    return _make_filmstrip(*args, **kwargs)
