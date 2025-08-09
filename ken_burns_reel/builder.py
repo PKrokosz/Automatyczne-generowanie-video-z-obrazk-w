@@ -263,10 +263,11 @@ def make_panels_cam_clip(
                     tau = (t - acc) / max(1e-6, dur)
                     # Monotoniczny ease-in (rosnąca prędkość po czasie) dla travel:
                     tau_e = (tau * tau) if easing == "ease" else tau
+                    # Stały rozmiar kadru w travel – tylko translacja:
+                    ww = int((w0 + w1) * 0.5)
+                    wh = int((h0 + h1) * 0.5)
                     cx = int(_interp(c0x, c1x, tau_e))
                     cy = int(_interp(c0y, c1y, tau_e))
-                    ww = int(_interp(w0, w1, tau_e))
-                    wh = int(_interp(h0, h1, tau_e))
                     frame = base.get_frame(0)
                     left = int(cx - ww // 2)
                     top = int(cy - wh // 2)
