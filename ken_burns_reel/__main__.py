@@ -24,6 +24,9 @@ def main() -> None:
             "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu"
         ),
     )
+    parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
+    parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
+    parser.add_argument("--xfade", type=float, default=0.4, help="Crossfade między stronami (s)")
     parser.add_argument(
         "--debug-panels",
         action="store_true",
@@ -49,21 +52,27 @@ def main() -> None:
         return
 
     if args.mode == "panels":
-        from .builder import make_panels_cam_clip
+        from .builder import make_panels_cam_sequence
         from moviepy.editor import AudioFileClip
 
-        # wybieramy pierwsze zdjęcie z folderu
         images = [
-            f
+            os.path.join(args.folder, f)
             for f in os.listdir(args.folder)
             if os.path.splitext(f)[1].lower() in {".jpg", ".jpeg", ".png"}
         ]
+        images.sort(key=lambda s: os.path.basename(s).lower())
         if not images:
             raise FileNotFoundError("Brak obrazów w folderze.")
-        image_path = os.path.join(args.folder, images[0])
-        clip = make_panels_cam_clip(image_path, target_size=(1080, 1920))
 
-        # audio (opcjonalnie)
+        clip = make_panels_cam_sequence(
+            images,
+            target_size=(1080, 1920),
+            fps=30,
+            dwell=args.dwell,
+            travel=args.travel,
+            xfade=args.xfade,
+        )
+
         audios = [
             f
             for f in os.listdir(args.folder)
