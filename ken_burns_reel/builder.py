@@ -109,9 +109,33 @@ def make_panels_cam_clip(
             acc += dur
         return base.get_frame(0)
 
-    anim = base.set_duration(total).fl_image(lambda _: None)
-    anim = anim.set_make_frame(make_frame)
+    from moviepy.video.VideoClip import VideoClip
+
+    anim = VideoClip(make_frame=make_frame, duration=total).set_fps(fps)
     return anim
+
+
+def make_panels_cam_sequence(
+    image_paths: List[str],
+    target_size=(1080, 1920),
+    fps: int = 30,
+    dwell: float = 1.0,
+    travel: float = 0.6,
+    xfade: float = 0.4,
+):
+    """
+    Buduje jeden film, sklejając panel-camera clippy dla wszystkich stron.
+    """
+    if not image_paths:
+        raise ValueError("make_panels_cam_sequence: empty image_paths")
+
+    clips = [
+        make_panels_cam_clip(p, target_size=target_size, fps=fps, dwell=dwell, travel=travel)
+        for p in image_paths
+    ]
+    # Crossfade między stronami
+    final = concatenate_videoclips(clips, method="compose", padding=-xfade)
+    return final
 
 
 ScreenSize = Tuple[int, int]
