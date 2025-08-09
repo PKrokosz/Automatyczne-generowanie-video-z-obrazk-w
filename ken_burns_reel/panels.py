@@ -1,4 +1,5 @@
 from typing import List, Tuple
+import os
 import cv2
 import numpy as np
 from PIL import Image
@@ -134,6 +135,84 @@ def order_panels_lr_tb(boxes: List[Box], row_tol: int = 40) -> List[Box]:
     for row in rows:
         out.extend(sorted(row, key=lambda b: b[0]))
     return out
+
+
+def export_panels(
+    image_path: str,
+    out_dir: str,
+    mode: str = "rect",
+    bleed: int = 24,
+) -> List[str]:
+    """Detect panels in *image_path* and export them to *out_dir*.
+
+    Parameters
+    ----------
+    image_path:
+        Path to the source page image.
+    out_dir:
+        Destination directory. A panel_<NNNN>.png file is written for each
+        detected panel.
+    mode:
+        ``"rect"`` saves rectangular crops. ``"mask"`` saves RGBA images where
+        gutters are transparent.
+    bleed:
+        Extra pixels around each panel crop.
+    """
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    with Image.open(image_path) as im:
+        rgb = np.array(im.convert("RGB"))
+    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+    L = lab[:, :, 0]
+    med = np.median(L)
+    thr = np.clip(med + 25, 180, 245).astype(np.uint8)
+    _, mask_white = cv2.threshold(L, thr, 255, cv2.THRESH_BINARY)
+    panels_mask = _build_panels_mask(mask_white)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(
+        panels_mask, connectivity=8
+    )
+    H, W = panels_mask.shape
+
+    comps: List[Tuple[Box, int]] = []
+    min_area = int(0.03 * W * H)
+    for i in range(1, num):
+        x, y, w, h, area = stats[i]
+        if area < min_area:
+            continue
+        ar = w / max(1, h)
+        if 0.3 <= ar <= 4.0:
+            comps.append(((int(x), int(y), int(w), int(h)), i))
+
+    if not comps:
+        return []
+
+    boxes = [c[0] for c in comps]
+    boxes = _suppress_nested(boxes)
+    boxes = order_panels_lr_tb(boxes)
+
+    # map boxes back to their label index
+    label_map = {box: idx for box, idx in comps}
+    out_paths: List[str] = []
+    for i, (x, y, w, h) in enumerate(boxes, start=1):
+        x0 = max(0, x - bleed)
+        y0 = max(0, y - bleed)
+        x1 = min(W, x + w + bleed)
+        y1 = min(H, y + h + bleed)
+        crop = rgb[y0:y1, x0:x1]
+        if mode == "mask":
+            lbl = label_map[(x, y, w, h)]
+            m = (labels == lbl).astype(np.uint8) * 255
+            mask_crop = m[y0:y1, x0:x1]
+            rgba = np.dstack([crop, mask_crop])
+            im_out = Image.fromarray(rgba, mode="RGBA")
+        else:
+            im_out = Image.fromarray(crop, mode="RGB")
+        fname = f"panel_{i:04d}.png"
+        out_path = os.path.join(out_dir, fname)
+        im_out.save(out_path)
+        out_paths.append(out_path)
+    return out_paths
 
 def debug_detect_panels(folder: str) -> None:
     import os
