@@ -5,7 +5,7 @@ import argparse
 import os
 
 from .bin_config import resolve_imagemagick, resolve_tesseract
-from .builder import make_filmstrip
+from .builder import make_filmstrip, _export_profile
 from .ocr import verify_tesseract_available
 
 
@@ -62,6 +62,29 @@ def main() -> None:
         default="first",
         help="Na ilu panelach zatrzymywać się w pełni",
     )
+    parser.add_argument(
+        "--bg-mode",
+        choices=["none", "blur", "stretch", "gradient"],
+        default="blur",
+        help="Underlay pod stroną",
+    )
+    parser.add_argument(
+        "--page-scale",
+        type=float,
+        default=0.92,
+        help="Skala foreground (mniejsza niż 1.0 = widać tło)",
+    )
+    parser.add_argument(
+        "--bg-parallax",
+        type=float,
+        default=0.02,
+        help="Siła paralaksy tła podczas travelu",
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Tryb podglądu (CRF 30, 720x1280, 24 fps, audio 96k)",
+    )
     args = parser.parse_args()
 
     resolve_imagemagick(args.magick)
@@ -117,11 +140,25 @@ def main() -> None:
             audio_path=audio_path,
             audio_fit=args.audio_fit,
             dwell_mode=args.dwell_mode,
+            bg_mode=args.bg_mode,
+            page_scale=args.page_scale,
+            bg_parallax=args.bg_parallax,
+            preview=args.preview,
         )
         out_path = os.path.join(args.folder, "final_video.mp4")
-        clip.write_videofile(out_path, fps=30, codec="libx264")
+        prof = _export_profile(args.preview)
+        if prof["resize"]:
+            clip = clip.resize(newsize=prof["resize"])
+        clip.write_videofile(
+            out_path,
+            fps=prof["fps"],
+            codec=prof["codec"],
+            audio_codec=prof["audio_codec"],
+            audio_bitrate=prof["audio_bitrate"],
+            ffmpeg_params=prof["ffmpeg_params"],
+        )
     else:
-        make_filmstrip(args.folder, audio_fit=args.audio_fit)
+        make_filmstrip(args.folder, audio_fit=args.audio_fit, preview=args.preview)
 
 
 if __name__ == "__main__":
