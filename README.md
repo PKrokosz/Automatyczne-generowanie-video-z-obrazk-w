@@ -75,6 +75,7 @@ python -m ken_burns_reel <ścieżka_do_folderu_z_obrazkami> --output output.mp4
 
 **Najważniejsze opcje CLI**:
 - `--audio-fit {trim,silence,loop}` — dopasowanie długości audio do wideo
+- `--audio-fit trim` — jeśli audio jest krótsze niż wideo, narzędzie automatycznie dopełnia ciszą (z fade-in/out), żeby uniknąć błędów odtwarzacza.
 - `--dwell-mode {first,each}` — zatrzymanie tylko na pierwszym panelu lub na każdym
 - `--align-beat` — dociąga start stron do beatu (±0.08 s, bez ujemnych segmentów)
 - `--debug-panels` — zapisuje podgląd wykrytych paneli i kończy działanie
