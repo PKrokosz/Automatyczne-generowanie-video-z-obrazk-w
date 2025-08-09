@@ -884,6 +884,8 @@ def make_panels_overlay_sequence(
     # prepare per-segment timing and optional quantization
     @dataclass
     class SegmentTiming:
+        """Per-segment timing values and snap offset."""
+
         start: float
         dwell: float
         travel: float
