@@ -204,8 +204,18 @@ def make_panels_cam_clip(
     bg_parallax: float = 0.85,
     panel_bleed: int = 24,
     zoom_max: float = 1.06,
+    easing: str | None = None,
 ):
-    """Animate camera between comic panels detected in the image."""
+    """Animate camera between comic panels detected in the image.
+
+    Parameters
+    ----------
+    easing:
+        Backwards compatible alias for ``travel_ease``. Passing ``"ease"`` maps
+        to ``"inout"``.
+    """
+    if easing is not None:
+        travel_ease = "inout" if easing == "ease" else easing
     with Image.open(image_path) as im:
         W, H = im.size
         arr = apply_clahe_rgb(np.array(im))
@@ -398,12 +408,16 @@ def make_panels_cam_sequence(
     bg_parallax: float = 0.85,
     panel_bleed: int = 24,
     zoom_max: float = 1.06,
+    easing: str | None = None,
 ):
     """
     Buduje jeden film, sklejając panel-camera clippy dla wszystkich stron.
     """
     if not image_paths:
         raise ValueError("make_panels_cam_sequence: empty image_paths")
+
+    if easing is not None:
+        travel_ease = "inout" if easing == "ease" else easing
 
     clips = [
         make_panels_cam_clip(
@@ -468,10 +482,13 @@ def _export_profile(profile: str, codec: str, target_size: Tuple[int, int]) -> D
     if profile == "preview" and target_size == (1080, 1920):
         resize = (720, 1280)
     codec_map = {"h264": "libx264", "hevc": "libx265"}
+    ffmpeg_params = ["-movflags", "+faststart", "-crf", base["crf"], "-pix_fmt", "yuv420p"]
+    if codec == "hevc":
+        ffmpeg_params.extend(["-tag:v", "hvc1"])
     return {
         "fps": base["fps"],
         "resize": resize,
-        "ffmpeg_params": ["-crf", base["crf"], "-pix_fmt", "yuv420p"],
+        "ffmpeg_params": ffmpeg_params,
         "audio_bitrate": base["audio_bitrate"],
         "codec": codec_map[codec],
         "audio_codec": "aac",

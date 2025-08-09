@@ -6,6 +6,53 @@ Projekt zawiera modularną architekturę z możliwością modyfikacji poszczegó
 
 ---
 
+## 🚀 Quick start
+
+**Bash**
+
+```bash
+python -m ken_burns_reel . --mode panels \
+  --bg-mode blur --page-scale 0.94 --bg-parallax 0.85 \
+  --profile social
+```
+
+**PowerShell** (multiline używa backticka \`)
+
+```powershell
+python -m ken_burns_reel . `
+  --mode panels `
+  --bg-mode blur `
+  --page-scale 0.94 `
+  --bg-parallax 0.85 `
+  --profile social
+```
+
+**CMD** (multiline używa znaku ^)
+
+```cmd
+python -m ken_burns_reel . --mode panels ^
+  --bg-mode blur ^
+  --page-scale 0.94 ^
+  --bg-parallax 0.85 ^
+  --profile social
+```
+
+Przykłady wymiarowania:
+
+```bash
+# 16:9 poziomo
+python -m ken_burns_reel . --mode panels --size 1920x1080 \
+  --bg-mode blur --page-scale 0.94 --profile social
+
+# 9:16 pionowo
+python -m ken_burns_reel . --mode panels --aspect 9:16 --height 1080 \
+  --bg-mode blur --page-scale 0.94 --profile social
+```
+
+Rekomendowana wartość `--page-scale` mieści się w zakresie `0.90–0.95`.
+
+---
+
 ## 📂 Struktura projektu
 
 ```

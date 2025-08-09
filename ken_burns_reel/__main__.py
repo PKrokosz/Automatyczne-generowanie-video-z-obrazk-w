@@ -9,6 +9,33 @@ from .builder import make_filmstrip, _export_profile
 from .ocr import verify_tesseract_available
 
 
+def _page_scale_type(x: str) -> float:
+    v = float(x)
+    if not (0.80 < v <= 1.0):
+        raise argparse.ArgumentTypeError("--page-scale must be in (0.80,1.0]")
+    return v
+
+
+def _parallax_type(x: str) -> float:
+    v = float(x)
+    if not (0.0 <= v <= 1.0):
+        raise argparse.ArgumentTypeError("--bg-parallax must be in [0,1]")
+    return v
+
+
+def _nonneg_int(x: str) -> int:
+    v = int(x)
+    if v < 0:
+        raise argparse.ArgumentTypeError("--panel-bleed must be >= 0")
+    return v
+
+
+def _zoom_max_type(x: str) -> float:
+    v = float(x)
+    if v < 1.0:
+        raise argparse.ArgumentTypeError("--zoom-max must be >= 1.0")
+    return v
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Ken Burns style video")
     parser.add_argument("folder", help="Input folder with images and audio")
@@ -28,10 +55,11 @@ def main() -> None:
     parser.add_argument("--settle", type=float, default=0.14, help="Długość micro-holdu (s)")
     parser.add_argument(
         "--travel-ease",
+        "--easing",
         dest="travel_ease",
-        choices=["in", "out", "inout", "linear"],
+        choices=["in", "out", "inout", "linear", "ease"],
         default="inout",
-        help="Rodzaj easing przy przejazdach",
+        help="Profil jazdy kamery",
     )
     parser.add_argument(
         "--dwell-scale",
@@ -71,25 +99,25 @@ def main() -> None:
     )
     parser.add_argument(
         "--page-scale",
-        type=float,
+        type=_page_scale_type,
         default=0.92,
         help="Skala foreground (mniejsza niż 1.0 = widać tło)",
     )
     parser.add_argument(
         "--bg-parallax",
-        type=float,
+        type=_parallax_type,
         default=0.85,
         help="Siła paralaksy tła podczas travelu",
     )
     parser.add_argument(
         "--panel-bleed",
-        type=int,
+        type=_nonneg_int,
         default=24,
         help="Margines przy kadrowaniu panelu (px)",
     )
     parser.add_argument(
         "--zoom-max",
-        type=float,
+        type=_zoom_max_type,
         default=1.06,
         help="Maksymalne dodatkowe przybliżenie dla małego tekstu",
     )
@@ -117,6 +145,9 @@ def main() -> None:
 
     if args.preview:
         args.profile = "preview"
+
+    if args.travel_ease == "ease":
+        args.travel_ease = "inout"
 
     target_size = (1080, 1920)
     if args.size:
