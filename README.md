@@ -79,8 +79,41 @@ python -m ken_burns_reel <ścieżka_do_folderu_z_obrazkami> --output output.mp4
 - `--dwell-mode {first,each}` — zatrzymanie tylko na pierwszym panelu lub na każdym
 - `--align-beat` — dociąga start stron do beatu (±0.08 s, bez ujemnych segmentów)
 - `--debug-panels` — zapisuje podgląd wykrytych paneli i kończy działanie
+- `--bg-mode {none,blur,stretch,gradient}` — sposób wypełnienia tła
+- `--bg-parallax` — siła paralaksy tła (0–1)
+- `--page-scale` — skala strony w kadrze (0.80–1.0)
+- `--panel-bleed` — margines przy kadrowaniu panelu (px)
+- `--zoom-max` — maksymalne dodatkowe przybliżenie małego tekstu
+- `--travel-ease {in,out,inout,linear}` — easing ruchu kamery
+- `--size WxH` lub `--aspect 9:16|16:9|1:1 --height H` — docelowy rozmiar wideo
+- `--profile {preview,social,quality}` / `--preview` — presety eksportu (jakość vs szybkość)
 
 Czas trwania filmu wynika z sumy klipów wideo, a audio jest dostosowywane zgodnie z `--audio-fit`.
+
+---
+
+### Formaty i presety
+
+Przykłady użycia:
+
+**Bash**
+```bash
+python -m ken_burns_reel folder --bg-mode blur --profile social
+```
+
+**CMD**
+```cmd
+python -m ken_burns_reel folder --bg-mode blur --profile social
+```
+
+**PowerShell** (multiline używa backticka `, a nie ^)
+```powershell
+python -m ken_burns_reel folder `
+  --bg-mode blur `
+  --page-scale 0.92
+```
+
+Zalecane `--page-scale` w zakresie `0.90–0.95`. Wideo można wymiarować przez `--size WxH` albo `--aspect 9:16 --height 1080`.
 
 ---
 

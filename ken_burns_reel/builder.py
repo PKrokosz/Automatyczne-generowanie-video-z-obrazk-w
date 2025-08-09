@@ -98,9 +98,14 @@ def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
     audio = audio_fadeout(audio, 0.15)
     return audio
 
-def _fit_window_to_box(img_w, img_h, box, target_size):
+def _fit_window_to_box(img_w, img_h, box, target_size, bleed: int = 0):
     """Return (cx, cy, win_w, win_h) framing window to fit a panel."""
     x, y, w, h = box
+    if bleed:
+        x = max(0, x - bleed)
+        y = max(0, y - bleed)
+        w = min(img_w - x, w + 2 * bleed)
+        h = min(img_h - y, h + 2 * bleed)
     tw, th = target_size
     scale_w = w / tw
     scale_h = h / th
@@ -159,20 +164,29 @@ def _make_underlay(arr: np.ndarray, target_size: Tuple[int, int], mode: str) -> 
     if mode == "none":
         canvas = np.zeros((H, W, 3), dtype=np.uint8)
         canvas[:] = (8, 10, 14)
-        return canvas
-    if mode == "stretch":
-        return cv2.resize(arr, (W, H), interpolation=cv2.INTER_CUBIC)
-    if mode == "gradient":
-        canvas = np.zeros((H, W, 3), dtype=np.uint8)
-        for y in range(H):
-            a = y / max(1, H - 1)
-            color = (int(20 + 40 * a), int(25 + 35 * a), int(30 + 30 * a))
-            canvas[y, :] = color
-        return canvas
-    base = cv2.resize(arr, (W, H), interpolation=cv2.INTER_CUBIC)
-    base = cv2.GaussianBlur(base, (51, 51), 0)
-    base = np.clip(base.astype(np.float32) * 1.05 + 3, 0, 255).astype(np.uint8)
-    return base
+    elif mode == "stretch":
+        canvas = cv2.resize(arr, (W, H), interpolation=cv2.INTER_CUBIC)
+        canvas = np.clip(canvas.astype(np.float32) * 0.7, 0, 255).astype(np.uint8)
+    elif mode == "gradient":
+        y = np.linspace(0, 1, H)[:, None]
+        top = np.array([20, 25, 30], dtype=np.float32)
+        bottom = np.array([60, 60, 60], dtype=np.float32)
+        canvas = (top + (bottom - top) * y).astype(np.uint8)
+        canvas = np.repeat(canvas, W, axis=1)
+    else:  # blur
+        canvas = cv2.resize(arr, (W, H), interpolation=cv2.INTER_CUBIC)
+        k = 51 if H >= 51 else (H // 2 * 2 + 1)
+        canvas = cv2.GaussianBlur(canvas, (k, k), 0)
+        hsv = cv2.cvtColor(canvas, cv2.COLOR_RGB2HSV).astype(np.float32)
+        hsv[:, :, 1] *= 0.6
+        hsv[:, :, 2] *= 0.7
+        canvas = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+    yy, xx = np.mgrid[0:H, 0:W]
+    dist = np.sqrt((xx - W / 2) ** 2 + (yy - H / 2) ** 2)
+    dist /= dist.max() + 1e-6
+    vign = 1 - 0.15 * dist
+    canvas = (canvas.astype(np.float32) * vign[..., None]).astype(np.uint8)
+    return canvas
 
 
 def make_panels_cam_clip(
@@ -181,13 +195,15 @@ def make_panels_cam_clip(
     fps: int = 30,
     dwell: float = 1.0,
     travel: float = 0.6,
-    settle: float = 0.1,
-    easing: str = "ease",
+    settle: float = 0.14,
+    travel_ease: str = "inout",
     dwell_scale: float = 1.0,
     dwell_mode: str = "first",
     bg_mode: str = "blur",
     page_scale: float = 0.92,
-    bg_parallax: float = 0.02,
+    bg_parallax: float = 0.85,
+    panel_bleed: int = 24,
+    zoom_max: float = 1.06,
 ):
     """Animate camera between comic panels detected in the image."""
     with Image.open(image_path) as im:
@@ -247,6 +263,9 @@ def make_panels_cam_clip(
     fh = int(Hout * page_scale)
     x0 = (Wout - fw) // 2
     y0 = (Hout - fh) // 2
+    page_layer0 = None
+    if page_scale < 1.0:
+        page_layer0 = cv2.resize(arr, (fw, fh), interpolation=cv2.INTER_CUBIC)
     segs: List[Tuple[str, int | Tuple[int, int], float]] = []
     if dwell_mode == "each":
         for i in range(len(boxes)):
@@ -265,13 +284,15 @@ def make_panels_cam_clip(
             if t <= acc + dur + 1e-6:
                 if kind == "dwell":
                     idx = payload
-                    cx, cy, ww, wh = _fit_window_to_box(W, H, boxes[idx], target_size)
+                    cx, cy, ww, wh = _fit_window_to_box(
+                        W, H, boxes[idx], target_size, panel_bleed
+                    )
                     # additional zoom if text is tiny
                     x, y, bw, bh = boxes[idx]
                     stats = stats_cache[idx]
                     med = stats.get("median_word_height", 0.0)
                     if med and med / max(1, bh) < 0.035:
-                        zoom = 1 / 1.06
+                        zoom = 1 / zoom_max
                         pad = 24
                         min_w = bw + pad * 2
                         min_h = bh + pad * 2
@@ -293,19 +314,30 @@ def make_panels_cam_clip(
                     fg = cv2.resize(crop, (fw, fh), interpolation=cv2.INTER_CUBIC)
                     bg = underlay0
                     canvas = bg.copy()
+                    if page_layer0 is not None:
+                        pg_canvas = np.zeros_like(bg)
+                        pg_canvas[y0 : y0 + fh, x0 : x0 + fw] = page_layer0
+                        mask = pg_canvas.sum(axis=2) > 0
+                        canvas[mask] = pg_canvas[mask]
                     canvas[y0 : y0 + fh, x0 : x0 + fw] = fg
                     return canvas[:, :, ::-1]
                 else:
                     i0, i1 = payload
                     c0x, c0y, w0, h0 = _fit_window_to_box(
-                        W, H, boxes[i0], target_size
+                        W, H, boxes[i0], target_size, panel_bleed
                     )
                     c1x, c1y, w1, h1 = _fit_window_to_box(
-                        W, H, boxes[i1], target_size
+                        W, H, boxes[i1], target_size, panel_bleed
                     )
                     tau = (t - acc) / max(1e-6, dur)
-                    # Monotoniczny ease-in (rosnąca prędkość po czasie) dla travel:
-                    tau_e = (tau * tau) if easing == "ease" else tau
+                    if travel_ease == "in":
+                        tau_e = tau * tau
+                    elif travel_ease == "out":
+                        tau_e = 1 - (1 - tau) * (1 - tau)
+                    elif travel_ease == "inout":
+                        tau_e = ease_in_out(tau)
+                    else:
+                        tau_e = tau
                     # Stały rozmiar kadru w travel – tylko translacja:
                     ww = int((w0 + w1) * 0.5)
                     wh = int((h0 + h1) * 0.5)
@@ -318,18 +350,23 @@ def make_panels_cam_clip(
                     top = max(0, min(top, H - wh))
                     crop = frame[top : top + wh, left : left + ww]
                     fg = cv2.resize(crop, (fw, fh), interpolation=cv2.INTER_CUBIC)
-                    if bg_parallax > 0:
-                        dx = int((c1x - c0x) * bg_parallax * 0.02)
-                        dy = int((c1y - c0y) * bg_parallax * 0.02)
-                        M = np.float32(
-                            [[1, 0, -int(dx * tau_e)], [0, 1, -int(dy * tau_e)]]
-                        )
-                        bg = cv2.warpAffine(
-                            underlay0, M, (Wout, Hout), borderMode=cv2.BORDER_REFLECT
-                        )
-                    else:
-                        bg = underlay0
+                    dx = int((c1x - c0x) * tau_e * (1 - bg_parallax))
+                    dy = int((c1y - c0y) * tau_e * (1 - bg_parallax))
+                    M = np.float32([[1, 0, -dx], [0, 1, -dy]])
+                    bg = cv2.warpAffine(underlay0, M, (Wout, Hout), borderMode=cv2.BORDER_REFLECT)
                     canvas = bg.copy()
+                    if page_layer0 is not None:
+                        pg_canvas = np.zeros_like(bg)
+                        pg_canvas[y0 : y0 + fh, x0 : x0 + fw] = page_layer0
+                        pg_parallax = (bg_parallax + 1.0) / 2.0
+                        dxp = int((c1x - c0x) * tau_e * (1 - pg_parallax))
+                        dyp = int((c1y - c0y) * tau_e * (1 - pg_parallax))
+                        Mp = np.float32([[1, 0, -dxp], [0, 1, -dyp]])
+                        pg_canvas = cv2.warpAffine(
+                            pg_canvas, Mp, (Wout, Hout), borderMode=cv2.BORDER_REFLECT
+                        )
+                        mask = pg_canvas.sum(axis=2) > 0
+                        canvas[mask] = pg_canvas[mask]
                     canvas[y0 : y0 + fh, x0 : x0 + fw] = fg
                     return canvas[:, :, ::-1]
             acc += dur
@@ -348,8 +385,8 @@ def make_panels_cam_sequence(
     dwell: float = 1.0,
     travel: float = 0.6,
     xfade: float = 0.4,
-    settle: float = 0.1,
-    easing: str = "ease",
+    settle: float = 0.14,
+    travel_ease: str = "inout",
     dwell_scale: float = 1.0,
     align_beat: bool = False,
     beat_times: List[float] | None = None,
@@ -358,17 +395,15 @@ def make_panels_cam_sequence(
     dwell_mode: str = "first",
     bg_mode: str = "blur",
     page_scale: float = 0.92,
-    bg_parallax: float = 0.02,
-    preview: bool = False,
+    bg_parallax: float = 0.85,
+    panel_bleed: int = 24,
+    zoom_max: float = 1.06,
 ):
     """
     Buduje jeden film, sklejając panel-camera clippy dla wszystkich stron.
     """
     if not image_paths:
         raise ValueError("make_panels_cam_sequence: empty image_paths")
-
-    if preview:
-        pass  # placeholder for future preview-specific behavior
 
     clips = [
         make_panels_cam_clip(
@@ -378,12 +413,14 @@ def make_panels_cam_sequence(
             dwell=dwell,
             travel=travel,
             settle=settle,
-            easing=easing,
+            travel_ease=travel_ease,
             dwell_scale=dwell_scale,
             dwell_mode=dwell_mode,
             bg_mode=bg_mode,
             page_scale=page_scale,
             bg_parallax=bg_parallax,
+            panel_bleed=panel_bleed,
+            zoom_max=zoom_max,
         )
         for p in image_paths
     ]
@@ -420,33 +457,25 @@ def make_panels_cam_sequence(
     return final
 
 
-def _export_profile(preview: bool) -> Dict[str, object]:
-    """Return export settings depending on *preview* flag."""
-    if preview:
-        return {
-            "fps": 24,
-            "resize": (720, 1280),
-            "ffmpeg_params": ["-crf", "30", "-preset", "veryfast", "-pix_fmt", "yuv420p"],
-            "audio_bitrate": "96k",
-            "codec": "libx264",
-            "audio_codec": "aac",
-        }
+def _export_profile(profile: str, codec: str, target_size: Tuple[int, int]) -> Dict[str, object]:
+    """Return export settings for given *profile* and *codec*."""
+    base = {
+        "preview": {"crf": "31", "preset": "veryfast", "audio_bitrate": "96k", "fps": 24},
+        "social": {"crf": "26", "preset": "medium", "audio_bitrate": "128k", "fps": 30},
+        "quality": {"crf": "21", "preset": "slow", "audio_bitrate": "192k", "fps": 30},
+    }[profile]
+    resize = None
+    if profile == "preview" and target_size == (1080, 1920):
+        resize = (720, 1280)
+    codec_map = {"h264": "libx264", "hevc": "libx265"}
     return {
-        "fps": 30,
-        "resize": None,
-        "ffmpeg_params": [
-            "-crf",
-            "26",
-            "-preset",
-            "faster",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-        ],
-        "audio_bitrate": "128k",
-        "codec": "libx264",
+        "fps": base["fps"],
+        "resize": resize,
+        "ffmpeg_params": ["-crf", base["crf"], "-pix_fmt", "yuv420p"],
+        "audio_bitrate": base["audio_bitrate"],
+        "codec": codec_map[codec],
         "audio_codec": "aac",
+        "preset": base["preset"],
     }
 
 
@@ -473,7 +502,13 @@ def ken_burns_scroll(
     return overlay_caption(zoomed, caption, screen_size)
 
 
-def make_filmstrip(input_folder: str, audio_fit: str = "trim", preview: bool = False) -> str:
+def make_filmstrip(
+    input_folder: str,
+    audio_fit: str = "trim",
+    profile: str = "social",
+    codec: str = "h264",
+    target_size: ScreenSize = (1080, 1920),
+) -> str:
     """Build final video from assets in *input_folder*.
 
     Parameters
@@ -512,9 +547,7 @@ def make_filmstrip(input_folder: str, audio_fit: str = "trim", preview: bool = F
         t0 = beat_times[i] if i < len(beat_times) else beat_times[-1]
         t1 = beat_times[i + 1] if i + 1 < len(beat_times) else t0 + 0.6
         duration = t1 - t0
-        clip = ken_burns_scroll(
-            path, (1080, 1920), duration, 30, focus_point, caption
-        )
+        clip = ken_burns_scroll(path, target_size, duration, 30, focus_point, caption)
         clips.append(clip)
 
     final_clip = concatenate_videoclips(clips, method="compose")
@@ -522,8 +555,8 @@ def make_filmstrip(input_folder: str, audio_fit: str = "trim", preview: bool = F
     audio = _fit_audio_clip(audio_path, video_duration, audio_fit)
     final_clip = final_clip.set_audio(audio)
     output_path = os.path.join(input_folder, "final_video.mp4")
-    prof = _export_profile(preview)
-    if prof["resize"]:
+    prof = _export_profile(profile, codec, target_size)
+    if prof.get("resize"):
         final_clip = final_clip.resize(newsize=prof["resize"])
     final_clip.write_videofile(
         output_path,
@@ -532,5 +565,6 @@ def make_filmstrip(input_folder: str, audio_fit: str = "trim", preview: bool = F
         audio_codec=prof["audio_codec"],
         audio_bitrate=prof["audio_bitrate"],
         ffmpeg_params=prof["ffmpeg_params"],
+        preset=prof["preset"],
     )
     return output_path

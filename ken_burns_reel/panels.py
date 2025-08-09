@@ -22,6 +22,9 @@ def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
     med = np.median(L)
     thr = np.clip(med + 25, 180, 245).astype(np.uint8)
     _, mask_white = cv2.threshold(L, thr, 255, cv2.THRESH_BINARY)
+    white_ratio = float((mask_white == 255).mean())
+    if white_ratio > 0.7:
+        min_area_ratio *= 1.2
     panels_mask = _build_panels_mask(mask_white)
     num, labels, stats, _ = cv2.connectedComponentsWithStats(panels_mask, connectivity=8)
     if num < 2:
@@ -55,7 +58,32 @@ def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
         ar = w / max(1, h)
         if 0.3 <= ar <= 4.0:
             boxes.append((int(x), int(y), int(w), int(h)))
-    return boxes
+    return _suppress_nested(boxes)
+
+
+def _suppress_nested(boxes: List[Box], thr: float = 0.85) -> List[Box]:
+    keep = [True] * len(boxes)
+    for i, A in enumerate(boxes):
+        if not keep[i]:
+            continue
+        ax, ay, aw, ah = A
+        area_a = aw * ah
+        for j, B in enumerate(boxes):
+            if i == j or not keep[j]:
+                continue
+            bx, by, bw, bh = B
+            if ax <= bx and ay <= by and ax + aw >= bx + bw and ay + ah >= by + bh:
+                area_b = bw * bh
+                ratio = area_b / max(1, area_a)
+                if ratio >= thr:
+                    keep[j] = False
+            elif bx <= ax and by <= ay and bx + bw >= ax + aw and by + bh >= ay + ah:
+                area_b = bw * bh
+                ratio = area_a / max(1, area_b)
+                if ratio >= thr:
+                    keep[i] = False
+                    break
+    return [b for b, k in zip(boxes, keep) if k]
 
 def order_panels_lr_tb(boxes: List[Box], row_tol: int = 40) -> List[Box]:
     if not boxes:
