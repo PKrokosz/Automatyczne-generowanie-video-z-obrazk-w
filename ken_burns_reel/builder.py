@@ -52,10 +52,7 @@ from .transitions import (
 import numpy as np
 from .panels import detect_panels, order_panels_lr_tb, alpha_bbox
 import cv2
-
-
-def _set_fps(clip, fps):
-    return clip.set_fps(fps) if hasattr(clip, "set_fps") else clip.with_fps(fps)
+from .utils import gaussian_blur, _set_fps
 
 
 def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
@@ -185,8 +182,9 @@ def _make_underlay(arr: np.ndarray, target_size: Tuple[int, int], mode: str) -> 
         canvas = np.repeat(canvas, W, axis=1)
     else:  # blur
         canvas = cv2.resize(arr, (W, H), interpolation=cv2.INTER_CUBIC)
-        k = 51 if H >= 51 else (H // 2 * 2 + 1)
-        canvas = cv2.GaussianBlur(canvas, (k, k), 0)
+        limit = min(W, H)
+        k = 51 if limit >= 51 else (limit // 2 * 2 + 1)
+        canvas = gaussian_blur(canvas, (k, k))
         hsv = cv2.cvtColor(canvas, cv2.COLOR_RGB2HSV).astype(np.float32)
         hsv[:, :, 1] *= 0.6
         hsv[:, :, 2] *= 0.7
@@ -544,12 +542,13 @@ def make_panels_items_sequence(
                 tail = clip.subclip(dwell - trans_dur, dwell)
                 head = nxt.subclip(0, trans_dur)
                 tclip = (
-                    CompositeVideoClip(
-                        [tail.crossfadeout(trans_dur), head.crossfadein(trans_dur)],
-                        size=target_size,
+                    _set_fps(
+                        CompositeVideoClip(
+                            [tail.crossfadeout(trans_dur), head.crossfadein(trans_dur)],
+                            size=target_size,
+                        ).set_duration(trans_dur),
+                        fps,
                     )
-                    .set_duration(trans_dur)
-                    .set_fps(fps)
                 )
             elif trans == "whip":
                 tclip = whip_pan_transition(clip, nxt, trans_dur, target_size, vec, fps=fps)
@@ -682,7 +681,7 @@ def make_panels_overlay_sequence(
         if fg_shadow > 0:
             mask_alpha = resized[:, :, 3]
             if fg_shadow_blur > 0:
-                shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
+                shadow = gaussian_blur(mask_alpha, sigma=fg_shadow_blur)
             else:
                 shadow = mask_alpha
             shadow = (shadow.astype(np.float32) * (fg_shadow / 255.0))
@@ -700,16 +699,18 @@ def make_panels_overlay_sequence(
             ImageClip(img, ismask=False)
             .set_mask(ImageClip(mask_img, ismask=True))
             .set_duration(dwell + travel)
-            .set_fps(fps)
         )
+        fg = _set_fps(fg, fps)
         fg_clips.append(fg)
 
     seq: List[VideoClip] = []
     for i in range(len(fg_clips)):
         comp = (
-            CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size)
-            .set_duration(dwell + travel)
-            .set_fps(fps)
+            _set_fps(
+                CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size)
+                .set_duration(dwell + travel),
+                fps,
+            )
         )
         seq.append(comp.subclip(0, dwell))
         if i < len(fg_clips) - 1:
@@ -733,7 +734,7 @@ def make_panels_overlay_sequence(
                 bg_t = whip_pan_transition(
                     bg_clips[i], bg_clips[i + 1], trans_dur, target_size, vec, fps=fps
                 )
-                fg_t = (
+                fg_t = _set_fps(
                     CompositeVideoClip(
                         [
                             fg_clips[i]
@@ -744,14 +745,12 @@ def make_panels_overlay_sequence(
                             .crossfadein(trans_dur),
                         ],
                         size=target_size,
-                    )
-                    .set_duration(trans_dur)
-                    .set_fps(fps)
+                    ).set_duration(trans_dur),
+                    fps,
                 )
-                tclip = (
-                    CompositeVideoClip([bg_t, fg_t], size=target_size)
-                    .set_duration(trans_dur)
-                    .set_fps(fps)
+                tclip = _set_fps(
+                    CompositeVideoClip([bg_t, fg_t], size=target_size).set_duration(trans_dur),
+                    fps,
                 )
             else:
                 prev_comp = CompositeVideoClip(
@@ -767,13 +766,12 @@ def make_panels_overlay_sequence(
                 else:
                     tail = prev_comp.subclip(dwell, dwell + trans_dur)
                     head = next_comp.subclip(0, trans_dur)
-                    tclip = (
+                    tclip = _set_fps(
                         CompositeVideoClip(
                             [tail.crossfadeout(trans_dur), head.crossfadein(trans_dur)],
                             size=target_size,
-                        )
-                        .set_duration(trans_dur)
-                        .set_fps(fps)
+                        ).set_duration(trans_dur),
+                        fps,
                     )
             seq.append(tclip)
 

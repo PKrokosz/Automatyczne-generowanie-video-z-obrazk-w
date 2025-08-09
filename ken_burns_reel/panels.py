@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
+from .utils import gaussian_blur
 
 Box = Tuple[int, int, int, int]
 
@@ -229,7 +230,7 @@ def export_panels(
                 kernel = np.ones((tight_border, tight_border), np.uint8)
                 mask_crop = cv2.erode(mask_crop, kernel, iterations=1)
             if feather > 0:
-                mask_crop = cv2.GaussianBlur(mask_crop, (0, 0), feather)
+                mask_crop = gaussian_blur(mask_crop, sigma=feather)
             rgba = np.dstack([crop, mask_crop])
             im_out = Image.fromarray(rgba, mode="RGBA")
         else:

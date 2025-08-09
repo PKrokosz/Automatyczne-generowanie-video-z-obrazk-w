@@ -18,6 +18,7 @@ from moviepy.video.fx.all import crop
 from ken_burns_reel.bin_config import resolve_imagemagick, resolve_tesseract
 from ken_burns_reel.captions import overlay_caption
 from ken_burns_reel.focus import detect_focus_point
+from ken_burns_reel.utils import _set_fps
 from ken_burns_reel.ocr import extract_caption, verify_tesseract_available
 
 resolve_imagemagick()
@@ -71,7 +72,7 @@ def ken_burns_scroll(
 
     zoomed = img_clip.resize(lambda t: zoom(t))
     scrolled = zoomed.crop(width=W, height=H, x_center=x_center, y_center=y_center)
-    scrolled = scrolled.set_duration(duration).set_fps(fps)
+    scrolled = _set_fps(scrolled.set_duration(duration), fps)
     return overlay_caption(scrolled, caption, size)
 
 
