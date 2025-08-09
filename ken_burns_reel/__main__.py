@@ -132,6 +132,21 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             min_panel_area_ratio=args.min_panel_area_ratio,
             gutter_thicken=args.gutter_thicken,
             debug_overlay=args.debug_overlay,
+            timing_profile=args.timing_profile,
+            bpm=args.bpm,
+            beats_per_panel=args.beats_per_panel,
+            beats_travel=args.beats_travel,
+            readability_ms=args.readability_ms,
+            min_dwell=args.min_dwell,
+            max_dwell=args.max_dwell,
+            settle_min=args.settle_min,
+            settle_max=args.settle_max,
+            quantize=args.quantize,
+            page_scale_overlay=args.page_scale_overlay,
+            bg_vignette=args.bg_vignette,
+            overlay_pop=args.overlay_pop,
+            overlay_jitter=args.overlay_jitter,
+            look=args.look,
             limit_items=args.limit_items,
             trans="smear",
             trans_dur=0.30,
@@ -424,11 +439,31 @@ def main() -> None:
         action="store_true",
         help="Zapisz PNG z overlay dla pierwszych segmentów",
     )
+    parser.add_argument("--timing-profile", choices=["human", "music", "free"], default=None, help="Profil czasu trwania segmentów")
+    parser.add_argument("--bpm", type=int, help="Ustaw tempo utworu (beats per minute)")
+    parser.add_argument("--beats-per-panel", type=float, default=2.0, help="Ile beatów na panel")
+    parser.add_argument("--beats-travel", type=float, default=0.5, help="Ile beatów przejazdu")
+    parser.add_argument("--readability-ms", type=int, default=900, help="Minimalna ekspozycja panelu (ms)")
+    parser.add_argument("--min-dwell", type=float, default=1.0, help="Minimalny czas zatrzymania (s)")
+    parser.add_argument("--max-dwell", type=float, default=1.8, help="Maksymalny czas zatrzymania (s)")
+    parser.add_argument("--settle-min", type=float, default=0.12, help="Minimalny czas settle (s)")
+    parser.add_argument("--settle-max", type=float, default=0.22, help="Maksymalny czas settle (s)")
+    parser.add_argument("--quantize", choices=["off", "1/8", "1/4"], default="off", help="Przyciągaj starty do siatki nut")
+    parser.add_argument("--overlay-pop", "--pop-scale", dest="overlay_pop", type=float, default=1.0, help="Początkowa skala overlay dla efektu pop-in")
+    parser.add_argument("--overlay-jitter", "--jitter", dest="overlay_jitter", type=float, default=0.0, help="Subtelny mikro-ruch overlay (px)")
+    parser.add_argument("--page-scale-overlay", type=_page_scale_type, default=1.0, help="Skala strony przy overlay")
+    parser.add_argument("--bg-vignette", type=_parallax_type, default=0.15, help="Siła winiety tła")
+    parser.add_argument("--look", choices=["none", "witcher1"], default="none", help="Preset koloru tła")
     parser.add_argument("--items-from", help="Folder z maskami paneli")
     args = parser.parse_args()
 
     if args.mode is None:
         args.mode = "panels-overlay" if args.oneclick else "classic"
+
+    if args.timing_profile is None:
+        args.timing_profile = (
+            "human" if (args.oneclick or args.mode == "panels-overlay") else "free"
+        )
 
     if args.bg_parallax is None and getattr(args, "parallax_bg", None) is not None:
         args.bg_parallax = args.parallax_bg
@@ -645,6 +680,8 @@ def main() -> None:
             dwell=args.dwell,
             travel=args.travel,
             travel_ease=args.travel_ease,
+            align_beat=args.align_beat,
+            beat_times=beat_times,
             overlay_fit=args.overlay_fit,
             overlay_margin=args.overlay_margin,
             overlay_mode=args.overlay_mode,
@@ -666,6 +703,21 @@ def main() -> None:
             min_panel_area_ratio=args.min_panel_area_ratio,
             gutter_thicken=args.gutter_thicken,
             debug_overlay=args.debug_overlay,
+            timing_profile=args.timing_profile,
+            bpm=args.bpm,
+            beats_per_panel=args.beats_per_panel,
+            beats_travel=args.beats_travel,
+            readability_ms=args.readability_ms,
+            min_dwell=args.min_dwell,
+            max_dwell=args.max_dwell,
+            settle_min=args.settle_min,
+            settle_max=args.settle_max,
+            quantize=args.quantize,
+            page_scale_overlay=args.page_scale_overlay,
+            bg_vignette=args.bg_vignette,
+            overlay_pop=args.overlay_pop,
+            overlay_jitter=args.overlay_jitter,
+            look=args.look,
             limit_items=args.limit_items,
             trans=args.trans,
             trans_dur=args.trans_dur,
