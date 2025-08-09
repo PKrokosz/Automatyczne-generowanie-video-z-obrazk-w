@@ -60,7 +60,9 @@ def test_smear_transition_basic():
 def test_whip_pan_transition_basic():
     clip1 = ColorClip(size=(100, 80), color=(0, 0, 255)).set_duration(1).set_fps(24)
     clip2 = ColorClip(size=(100, 80), color=(0, 255, 0)).set_duration(1).set_fps(24)
-    trans = whip_pan_transition(clip1, clip2, 0.2, (100, 80), vec=(20, 0))
+    trans = whip_pan_transition(
+        clip1, clip2, 0.2, (100, 80), vec=(20, 0), ease="linear"
+    )
     f0 = trans.get_frame(0)
     fend = trans.get_frame(0.2 - 1e-6)
     assert np.allclose(f0, clip1.get_frame(0.8), atol=1)
@@ -128,7 +130,20 @@ def test_smear_bg_crossfade_fg_edges():
     fg = ImageClip(arr[:, :, :3], ismask=False).set_mask(
         ImageClip(arr[:, :, 3] / 255.0, ismask=True)
     ).set_duration(1).set_fps(24)
-    trans = smear_bg_crossfade_fg(bg1, bg2, fg, fg, 0.3, (50, 50), vec=(20, 0), fps=24)
-    frame = trans.get_frame(0.15)
-    edges = cv2.Canny(frame, 50, 150)
+    trans = smear_bg_crossfade_fg(
+        bg1,
+        bg2,
+        fg,
+        fg,
+        0.3,
+        (50, 50),
+        vec=(20, 0),
+        fps=24,
+        bg_brightness_dip=0.05,
+        steps_auto=True,
+    )
+    frame_start = trans.get_frame(0)
+    frame_mid = trans.get_frame(0.15)
+    edges = cv2.Canny(frame_mid, 50, 150)
     assert edges.mean() > 5
+    assert frame_mid.mean() < frame_start.mean()

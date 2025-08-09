@@ -8,6 +8,30 @@ import numpy as np
 import cv2
 from .utils import gaussian_blur, _set_fps
 
+
+def ease_in_out(t: float) -> float:
+    """Cosine ease-in-out for ``t`` in [0,1]."""
+    return 0.5 - 0.5 * math.cos(math.pi * t)
+
+
+def ease_in(t: float) -> float:
+    """Cosine ease-in for ``t`` in [0,1]."""
+    return 1 - math.cos(0.5 * math.pi * t)
+
+
+def ease_out(t: float) -> float:
+    """Cosine ease-out for ``t`` in [0,1]."""
+    return math.sin(0.5 * math.pi * t)
+
+
+def _get_ease_fn(name: str):
+    return {
+        "linear": lambda t: t,
+        "in": ease_in,
+        "out": ease_out,
+        "inout": ease_in_out,
+    }.get(name, ease_in_out)
+
 try:
     from moviepy.editor import CompositeVideoClip, VideoClip
 except ModuleNotFoundError:  # moviepy >=2.0
@@ -85,21 +109,18 @@ def whip_pan_transition(
     size: Tuple[int, int],
     vec: Tuple[float, float],
     fps: int = 30,
+    ease: str = "inout",
 ):
-    """Whip-pan style transition with eased velocity and brightness dip."""
+    """Whip-pan style transition with easing and brightness dip."""
 
     W, H = size
     tail = prev_clip.subclip(prev_clip.duration - duration, prev_clip.duration)
     head = next_clip.subclip(0, duration)
     dx, dy = vec
-
-    def ease(t: float) -> float:
-        a = t**3
-        b = (1 - t) ** 3
-        return a / (a + b) if a + b > 0 else t
+    ease_fn = _get_ease_fn(ease)
 
     def make_frame(t):
-        p = ease(t / duration)
+        p = ease_fn(t / duration)
         frame_prev = tail.get_frame(t).astype(np.uint8)
         frame_next = head.get_frame(t).astype(np.uint8)
         shift_prev = (-dx * p, -dy * p)
@@ -137,10 +158,15 @@ def smear_bg_crossfade_fg(
     steps: int = 12,
     strength: float = 1.0,
     fps: int = 30,
+    bg_brightness_dip: float = 0.0,
+    steps_auto: bool = False,
 ):
-    """Smear transition applied only to backgrounds with foreground crossfade."""
+    """Smear transition for backgrounds with foreground crossfade."""
 
     W, H = size
+    if steps_auto:
+        steps = max(8, int(min(W, H) / 160))
+    dip = max(0.0, min(0.15, bg_brightness_dip))
     tbg = tail_bg.subclip(tail_bg.duration - duration, tail_bg.duration)
     hbg = head_bg.subclip(0, duration)
     tfg = tail_fg.subclip(tail_fg.duration - duration, tail_fg.duration)
@@ -171,6 +197,8 @@ def smear_bg_crossfade_fg(
         smear_next = acc_next / steps
         alpha = p
         frame = (1 - alpha) * smear_prev + alpha * smear_next
+        if dip > 0 and 0.4 <= p <= 0.6:
+            frame *= 1 - dip
         return np.clip(frame, 0, 255).astype(np.uint8)
 
     bg_clip = _set_fps(VideoClip(make_bg, duration=duration), fps)
