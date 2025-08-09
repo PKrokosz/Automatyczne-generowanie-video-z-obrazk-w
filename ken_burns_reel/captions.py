@@ -4,7 +4,10 @@ from __future__ import annotations
 from typing import Tuple, Optional
 import re
 
-from moviepy.editor import CompositeVideoClip, TextClip
+try:
+    from moviepy.editor import CompositeVideoClip, TextClip
+except ModuleNotFoundError:  # moviepy >=2.0
+    from moviepy import CompositeVideoClip, TextClip
 
 CAPTION_MAXLEN = 120
 CAPTION_MIN_ALNUM = 3

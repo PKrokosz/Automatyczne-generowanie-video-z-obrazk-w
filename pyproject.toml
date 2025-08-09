@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ken-burns-reel"
+version = "0.2.0"
+description = "Automatyczne generowanie wideo z obrazków (Ken Burns + komiksowe panele)"
+authors = [{ name="PKrokosz" }]
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["ken_burns_reel*"]
+exclude = ["legacy_old*"]

@@ -50,6 +50,18 @@ def main() -> None:
             "Tryb debug – zapisuje plik panels_debug.jpg z wykrytymi ramkami i kończy działanie."
         ),
     )
+    parser.add_argument(
+        "--audio-fit",
+        choices=["trim", "silence", "loop"],
+        default="trim",
+        help="Jak dopasować audio do długości wideo",
+    )
+    parser.add_argument(
+        "--dwell-mode",
+        choices=["first", "each"],
+        default="first",
+        help="Na ilu panelach zatrzymywać się w pełni",
+    )
     args = parser.parse_args()
 
     resolve_imagemagick(args.magick)
@@ -102,16 +114,14 @@ def main() -> None:
             dwell_scale=args.dwell_scale,
             align_beat=args.align_beat,
             beat_times=beat_times,
+            audio_path=audio_path,
+            audio_fit=args.audio_fit,
+            dwell_mode=args.dwell_mode,
         )
-        if audio_path:
-            audioclip = AudioFileClip(audio_path)
-            audioclip = audio_fadein.audio_fadein(audioclip, 0.15)
-            audioclip = audio_fadeout.audio_fadeout(audioclip, 0.15)
-            clip = clip.set_audio(audioclip)
         out_path = os.path.join(args.folder, "final_video.mp4")
         clip.write_videofile(out_path, fps=30, codec="libx264")
     else:
-        make_filmstrip(args.folder)
+        make_filmstrip(args.folder, audio_fit=args.audio_fit)
 
 
 if __name__ == "__main__":

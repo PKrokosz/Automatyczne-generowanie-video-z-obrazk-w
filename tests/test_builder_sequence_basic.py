@@ -5,10 +5,15 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 import soundfile as sf
+import pytesseract
 
 from ken_burns_reel.bin_config import resolve_imagemagick, resolve_tesseract
-from ken_burns_reel.builder import make_filmstrip, make_panels_cam_sequence
-from ken_burns_reel.builder import make_panels_cam_clip
+from ken_burns_reel.builder import (
+    make_filmstrip,
+    make_panels_cam_sequence,
+    make_panels_cam_clip,
+    apply_clahe_rgb,
+)
 from ken_burns_reel.ocr import text_boxes_stats
 from ken_burns_reel.panels import detect_panels, order_panels_lr_tb
 from ken_burns_reel.builder import _fit_window_to_box
@@ -112,3 +117,44 @@ def test_adaptive_threshold_fallback() -> None:
     draw.rectangle([210, 10, 390, 190], fill="black")
     boxes = detect_panels(img)
     assert len(boxes) >= 2
+
+
+def test_dwell_mode_first_vs_each(tmp_path: Path) -> None:
+    img = Image.new("RGB", (400, 200), "white")
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([10, 10, 190, 190], outline="black", width=5)
+    draw.rectangle([210, 10, 390, 190], outline="black", width=5)
+    path = tmp_path / "dwell.png"
+    img.save(path)
+
+    clip_first = make_panels_cam_clip(
+        str(path), target_size=(64, 32), dwell=0.5, travel=0.2, dwell_mode="first"
+    )
+    clip_each = make_panels_cam_clip(
+        str(path), target_size=(64, 32), dwell=0.5, travel=0.2, dwell_mode="each"
+    )
+    assert clip_each.duration > clip_first.duration
+
+
+def test_ocr_page_cache(monkeypatch, tmp_path: Path) -> None:
+    calls = []
+
+    def fake_image_to_data(*args, **kwargs):
+        calls.append(1)
+        return {"text": [], "left": [], "top": [], "width": [], "height": []}
+
+    monkeypatch.setattr(pytesseract, "image_to_data", fake_image_to_data)
+    img = Image.new("RGB", (200, 100), "white")
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([10, 10, 90, 90], outline="black")
+    draw.rectangle([110, 10, 190, 90], outline="black")
+    path = tmp_path / "ocr.png"
+    img.save(path)
+    make_panels_cam_clip(str(path), target_size=(64, 32))
+    assert len(calls) == 1
+
+
+def test_clahe_gamma_clamp() -> None:
+    arr = np.full((50, 50, 3), 5, dtype=np.uint8)
+    out = apply_clahe_rgb(arr)
+    assert out.mean() < 100
