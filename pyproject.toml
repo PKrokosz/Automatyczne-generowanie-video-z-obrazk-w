@@ -12,3 +12,12 @@ dependencies = []
 [tool.setuptools.packages.find]
 include = ["ken_burns_reel*"]
 exclude = ["legacy_old*"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "opencv-python-headless>=4.9",
+  "moviepy",
+  "numpy",
+  "Pillow"
+]

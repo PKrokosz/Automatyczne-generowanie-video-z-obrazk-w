@@ -811,6 +811,11 @@ def make_panels_overlay_sequence(
         box = it["box"]
         Hpage, Wpage = page_arr.shape[:2]
         cx0, cy0, win_w, win_h = it["frame"]
+        # zapewnij cx1, cy1 także dla center-mode
+        if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
+            cx1, cy1, _, _ = items[i + 1]["frame"]
+        else:
+            cx1, cy1 = cx0, cy0
         left0 = int(max(0, min(cx0 - win_w // 2, Wpage - win_w)))
         top0 = int(max(0, min(cy0 - win_h // 2, Hpage - win_h)))
         if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
@@ -844,27 +849,32 @@ def make_panels_overlay_sequence(
                     if page_dim > 0:
                         hsv[:, :, 2] *= 1 - page_dim
                     mid = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
-                if mid_vignette > 0:
+                if bg_tex == "vignette" and mid_vignette > 0:
                     yy, xx = np.mgrid[0:Hout, 0:Wout]
                     dist = np.sqrt((xx - Wout / 2) ** 2 + (yy - Hout / 2) ** 2)
                     dist /= dist.max() + 1e-6
                     vign = 1 - mid_vignette * dist
                     mid = (mid.astype(np.float32) * vign[..., None]).astype(np.uint8)
+                elif bg_tex == "gradient":
+                    gx = np.linspace(0.9, 1.0, Wout, dtype=np.float32)[None, :].repeat(Hout, 0)
+                    mid = np.clip(mid.astype(np.float32) * gx[..., None], 0, 255).astype(np.uint8)
+                # bg_tex == "none" -> bez tekstur
                 frame = mid
             else:
                 frame = _make_underlay(arr, target_size, bg_source)
 
-            if deep_bg_mode != "none":
+            if deep_bg_mode != "none" and travel > 0:
                 if deep_bg_mode == "gradient":
                     base = np.linspace(0, 255, Wout, dtype=np.uint8)[None, :].repeat(Hout, 0)
                     deep = np.dstack([base, base, base])
                 else:
                     rng = np.random.default_rng(0)
                     deep = rng.integers(0, 256, (Hout, Wout, 3), dtype=np.uint8)
-                dx = int(deep_bg_parallax * Wout * t)
-                dy = int(deep_bg_parallax * Hout * t)
+                p = min(1.0, t / max(1e-6, dwell + travel))
+                dx = int(deep_bg_parallax * parallax_bg * Wout * p)
+                dy = int(deep_bg_parallax * parallax_bg * Hout * p)
                 deep = np.roll(np.roll(deep, dx, axis=1), dy, axis=0)
-                frame = cv2.addWeighted(deep, 0.5, frame, 0.5, 0)
+                frame = cv2.addWeighted(deep, 0.25, frame, 0.75, 0)
             return frame
 
         bg = _set_fps(VideoClip(make_bg, duration=dwell + travel), fps)
