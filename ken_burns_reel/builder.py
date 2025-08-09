@@ -936,6 +936,7 @@ def make_panels_overlay_sequence(
             new_timings.append(SegmentTiming(start, d, tr, st, delta))
         seg_timings = new_timings
         overlay_jitter = 0.0
+
     timing_log: List[Dict[str, float]] = []
     meta = {"timing_profile": timing_profile, "bpm": bpm}
     timing_log.append(meta)
