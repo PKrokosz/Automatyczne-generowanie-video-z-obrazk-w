@@ -244,6 +244,13 @@ def _darken_region_with_alpha_clipped(
     )
 
 
+def _attach_mask(clip: VideoClip, mask: VideoClip) -> VideoClip:
+    """Attach *mask* to *clip* using API compatible with moviepy v1/v2."""
+    if hasattr(clip, "with_mask"):
+        return clip.with_mask(mask)
+    return clip.set_mask(mask)
+
+
 def _make_underlay(arr: np.ndarray, target_size: Tuple[int, int], mode: str) -> np.ndarray:
     """Generate a background underlay for the page based on *mode*.
 
@@ -670,6 +677,8 @@ def make_panels_overlay_sequence(
     beat_times=None,
     overlay_fit: float = 0.75,
     overlay_margin: int = 0,
+    overlay_mode: str = "center",
+    overlay_scale: float = 1.15,
     bg_source: str = "page",
     bg_tone_strength: float = 0.7,
     parallax_bg: float = 0.85,
@@ -678,6 +687,9 @@ def make_panels_overlay_sequence(
     fg_shadow_blur: int = 18,
     fg_shadow_offset: int = 4,
     fg_shadow_mode: str = "soft",
+    min_panel_area_ratio: float = 0.03,
+    gutter_thicken: int = 0,
+    debug_overlay: bool = False,
     limit_items: int = 999,
     trans: str = "smear",
     trans_dur: float = 0.3,
@@ -692,7 +704,9 @@ def make_panels_overlay_sequence(
     for idx, p in enumerate(page_paths, 1):
         with Image.open(p) as im:
             page_arr = np.array(im.convert("RGB"))
-            boxes = order_panels_lr_tb(detect_panels(im))
+            boxes = order_panels_lr_tb(
+                detect_panels(im, min_panel_area_ratio, gutter_thicken)
+            )
         panel_folder = os.path.join(panels_dir, f"page_{idx:04d}")
         panel_files = sorted(glob.glob(os.path.join(panel_folder, "panel_*.png")))
         for box, panel_file in zip(boxes, panel_files):
@@ -782,7 +796,18 @@ def make_panels_overlay_sequence(
             return frame
 
         bg = _set_fps(VideoClip(make_bg, duration=dwell + travel), fps)
-        bg = bg.set_mask(ImageClip(np.zeros((Hout, Wout)), ismask=True).set_duration(dwell + travel))
+        if hasattr(ImageClip(np.zeros((Hout, Wout, 3))), "to_mask"):
+            base = ImageClip(np.zeros((Hout, Wout, 3)))
+            if hasattr(base, "with_duration"):
+                base = base.with_duration(dwell + travel)
+            else:
+                base = base.set_duration(dwell + travel)
+            mask_clip = base.to_mask()
+        else:  # MoviePy 1.x
+            mask_clip = ImageClip(
+                np.zeros((Hout, Wout)), ismask=True
+            ).set_duration(dwell + travel)
+        bg = _attach_mask(bg, mask_clip)
         bg_clips.append(bg)
 
         x0, y0, w0, h0 = alpha_bbox(panel_arr)
@@ -797,62 +822,127 @@ def make_panels_overlay_sequence(
             x0, y0, w0, h0 = 0, 0, w, h
         panel = panel_arr[y0 : y0 + h0, x0 : x0 + w0]
         panel = enhance_panel(panel)
-        ph, pw = panel.shape[:2]
-        scale = min(overlay_fit * Hout / max(1, ph), Wout / max(1, pw))
-        nw = int(round(pw * scale))
-        nh = int(round(ph * scale))
-        nw = min(nw, Wout - 2 * overlay_margin)
-        nh = min(nh, Hout - 2 * overlay_margin)
-        x_base = (Wout - nw) // 2
-        y_base = (Hout - nh) // 2
-        x_base = max(overlay_margin, min(x_base, Wout - overlay_margin - nw))
-        y_base = max(overlay_margin, min(y_base, Hout - overlay_margin - nh))
-        resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
-        mask_alpha = resized[:, :, 3]
-        if fg_shadow_blur > 0:
-            shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
-        else:
-            shadow = mask_alpha
-        scale_x = Wout / win_w
-        scale_y = Hout / win_h
 
-        def _pos(t, xb=x_base, yb=y_base):
-            offx = offy = 0.0
-            if t > dwell:
-                p = (t - dwell) / max(1e-6, travel)
-                p = ease_fn(p)
-                offx = (cx1 - cx0) * parallax_fg * p * scale_x
-                offy = (cy1 - cy0) * parallax_fg * p * scale_y
-            x_pos = int(round(xb + offx))
-            y_pos = int(round(yb + offy))
-            x_pos = max(0, min(x_pos, Wout - nw))
-            y_pos = max(0, min(y_pos, Hout - nh))
-            return x_pos, y_pos
+        if overlay_mode == "anchored":
+            x, y, w, h = box
+            S = Wout / win_w
+            dst_w = int(round(w * S * overlay_scale))
+            dst_h = int(round(h * S * overlay_scale))
+            resized = cv2.resize(panel, (dst_w, dst_h), interpolation=cv2.INTER_CUBIC)
+            mask_alpha = resized[:, :, 3]
+            shadow = (
+                cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
+                if fg_shadow_blur > 0
+                else mask_alpha
+            )
 
-        def make_fg_frame(t, overlay=resized, shadow_map=shadow):
-            canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
-            x_pos, y_pos = _pos(t)
-            if fg_shadow > 0:
-                sx = x_pos + fg_shadow_offset
-                sy = y_pos + fg_shadow_offset
-                _darken_region_with_alpha_clipped(
-                    canvas[:, :, :3], shadow_map, sx, sy, float(fg_shadow)
-                )
-            _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
-            return canvas[:, :, :3]
+            def _pos(t):
+                if t <= dwell:
+                    l, tp = left0, top0
+                else:
+                    p = (t - dwell) / max(1e-6, travel)
+                    p = ease_fn(p)
+                    l = left0 + parallax_bg * (left1 - left0) * p
+                    tp = top0 + parallax_bg * (top1 - top0) * p
+                nat_cx = (x + w / 2 - l) / win_w * Wout
+                nat_cy = (y + h / 2 - tp) / win_h * Hout
+                cam_dx = (l - left0) / win_w * Wout
+                cam_dy = (tp - top0) / win_h * Hout
+                dst_cx = nat_cx + parallax_fg * cam_dx
+                dst_cy = nat_cy + parallax_fg * cam_dy
+                x_pos = int(round(dst_cx - dst_w / 2))
+                y_pos = int(round(dst_cy - dst_h / 2))
+                return x_pos, y_pos
 
-        def make_fg_mask(t, overlay=resized):
-            canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
-            x_pos, y_pos = _pos(t)
-            _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
-            return canvas[:, :, 3] / 255.0
+            def make_fg_frame(t, overlay=resized, shadow_map=shadow):
+                canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                x_pos, y_pos = _pos(t)
+                if fg_shadow > 0:
+                    sx = x_pos + fg_shadow_offset
+                    sy = y_pos + fg_shadow_offset
+                    _darken_region_with_alpha_clipped(
+                        canvas[:, :, :3], shadow_map, sx, sy, float(fg_shadow)
+                    )
+                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                return canvas[:, :, :3]
+
+            def make_fg_mask(t, overlay=resized):
+                canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                x_pos, y_pos = _pos(t)
+                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                return canvas[:, :, 3] / 255.0
+
+        else:  # center mode
+            ph, pw = panel.shape[:2]
+            scale = min(overlay_fit * Hout / max(1, ph), Wout / max(1, pw))
+            nw = int(round(pw * scale))
+            nh = int(round(ph * scale))
+            nw = min(nw, Wout - 2 * overlay_margin)
+            nh = min(nh, Hout - 2 * overlay_margin)
+            x_base = (Wout - nw) // 2
+            y_base = (Hout - nh) // 2
+            x_base = max(overlay_margin, min(x_base, Wout - overlay_margin - nw))
+            y_base = max(overlay_margin, min(y_base, Hout - overlay_margin - nh))
+            resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
+            mask_alpha = resized[:, :, 3]
+            if fg_shadow_blur > 0:
+                shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
+            else:
+                shadow = mask_alpha
+            scale_x = Wout / win_w
+            scale_y = Hout / win_h
+
+            def _pos(t, xb=x_base, yb=y_base):
+                offx = offy = 0.0
+                if t > dwell:
+                    p = (t - dwell) / max(1e-6, travel)
+                    p = ease_fn(p)
+                    offx = (cx1 - cx0) * parallax_fg * p * scale_x
+                    offy = (cy1 - cy0) * parallax_fg * p * scale_y
+                x_pos = int(round(xb + offx))
+                y_pos = int(round(yb + offy))
+                x_pos = max(0, min(x_pos, Wout - nw))
+                y_pos = max(0, min(y_pos, Hout - nh))
+                return x_pos, y_pos
+
+            def make_fg_frame(t, overlay=resized, shadow_map=shadow):
+                canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                x_pos, y_pos = _pos(t)
+                if fg_shadow > 0:
+                    sx = x_pos + fg_shadow_offset
+                    sy = y_pos + fg_shadow_offset
+                    _darken_region_with_alpha_clipped(
+                        canvas[:, :, :3], shadow_map, sx, sy, float(fg_shadow)
+                    )
+                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                return canvas[:, :, :3]
+
+            def make_fg_mask(t, overlay=resized):
+                canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                x_pos, y_pos = _pos(t)
+                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                return canvas[:, :, 3] / 255.0
 
         fg = _set_fps(VideoClip(make_fg_frame, duration=dwell + travel), fps)
         fg_mask = _set_fps(
             VideoClip(make_fg_mask, duration=dwell + travel, ismask=True), fps
         )
-        fg = fg.set_mask(fg_mask)
+        fg = _attach_mask(fg, fg_mask)
         fg_clips.append(fg)
+
+        if debug_overlay and i < 2:
+            t_dbg = min(dwell / 2, max(0.0, dwell - 1e-3))
+            bg_dbg = make_bg(t_dbg)
+            fg_dbg = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+            x_dbg, y_dbg = _pos(t_dbg)
+            _paste_rgba_clipped(fg_dbg, resized, x_dbg, y_dbg)
+            alpha = fg_dbg[:, :, 3:4] / 255.0
+            comp_dbg = (fg_dbg[:, :, :3] * alpha + bg_dbg * (1 - alpha)).astype(np.uint8)
+            for gx in range(0, Wout, 20):
+                cv2.line(comp_dbg, (gx, 0), (gx, Hout - 1), (0, 255, 0), 1)
+            for gy in range(0, Hout, 20):
+                cv2.line(comp_dbg, (0, gy), (Wout - 1, gy), (0, 255, 0), 1)
+            cv2.imwrite(f"debug_overlay_{i:04d}.png", cv2.cvtColor(comp_dbg, cv2.COLOR_RGB2BGR))
 
     # prepare per-segment timing
     n = len(fg_clips)

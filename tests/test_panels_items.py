@@ -33,6 +33,17 @@ def _make_test_page(tmp_path):
     return p
 
 
+def _make_page_for_anchored(tmp_path):
+    arr = np.full((900, 600, 3), 200, dtype=np.uint8)
+    cv2.rectangle(arr, (50, 50), (250, 350), (0, 0, 0), -1)
+    cv2.rectangle(arr, (50, 50), (250, 350), (255, 255, 255), 3)
+    cv2.rectangle(arr, (350, 450), (550, 850), (0, 0, 0), -1)
+    cv2.rectangle(arr, (350, 450), (550, 850), (255, 255, 255), 3)
+    p = tmp_path / "page.png"
+    Image.fromarray(arr).save(p)
+    return p
+
+
 def test_export_panels_rect_and_mask(tmp_path):
     page = _make_test_page(tmp_path)
     out_rect = tmp_path / "rect"
@@ -46,7 +57,43 @@ def test_export_panels_rect_and_mask(tmp_path):
     with Image.open(paths_m[0]) as im:
         assert im.mode == "RGBA"
         alpha = np.array(im)[:, :, 3]
-        assert np.any(alpha < 255)
+    assert np.any(alpha < 255)
+
+
+def test_overlay_anchored_projection(tmp_path):
+    page = _make_page_for_anchored(tmp_path)
+    mask_dir = tmp_path / "mask" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "mask"),
+        target_size=(300, 450),
+        dwell=0.2,
+        travel=0.2,
+        overlay_mode="anchored",
+        overlay_scale=1.0,
+        parallax_fg=0.0,
+    )
+    t = 0.1
+    frame = clip.get_frame(t)
+    gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    assert cnts
+    M = cv2.moments(cnts[0])
+    cx = M["m10"] / max(1, M["m00"])
+    cy = M["m01"] / max(1, M["m00"])
+    box = (50, 50, 200, 300)
+    cx0, cy0, w0, h0 = _fit_window_to_box(600, 900, box, (300, 450))
+    win_w = w0
+    win_h = h0
+    left0 = int(max(0, min(cx0 - win_w // 2, 600 - win_w)))
+    top0 = int(max(0, min(cy0 - win_h // 2, 900 - win_h)))
+    S = 300 / win_w
+    exp_cx = (box[0] + box[2] / 2 - left0) / win_w * 300
+    exp_cy = (box[1] + box[3] / 2 - top0) / win_h * 450
+    assert abs(cx - exp_cx) < 6
+    assert abs(cy - exp_cy) < 6
 
 
 def test_smear_transition_basic():
@@ -60,6 +107,19 @@ def test_smear_transition_basic():
     assert np.allclose(fend, clip2.get_frame(0), atol=1)
     assert not np.allclose(fmid, f0)
     assert not np.allclose(fmid, fend)
+
+
+def test_export_panels_gutter_thicken(tmp_path):
+    arr = np.zeros((80, 120, 3), np.uint8)
+    cv2.line(arr, (60, 0), (60, 79), (255, 255, 255), 1)
+    page = tmp_path / "page.png"
+    Image.fromarray(arr).save(page)
+    out0 = tmp_path / "mask0" / "page_0001"
+    out1 = tmp_path / "mask1" / "page_0001"
+    paths0 = export_panels(str(page), str(out0), mode="mask", bleed=0, tight_border=0, feather=0, gutter_thicken=0)
+    paths1 = export_panels(str(page), str(out1), mode="mask", bleed=0, tight_border=0, feather=0, gutter_thicken=4)
+    assert len(paths0) == 1
+    assert len(paths1) >= 2
 
 
 def test_whip_pan_transition_basic():
@@ -314,6 +374,27 @@ def test_overlay_clip_no_broadcast(tmp_path):
         fg_shadow=0.25,
         fg_shadow_blur=8,
         fg_shadow_offset=3,
+    )
+    frame = clip.get_frame(0.05)
+    assert frame.shape[:2] == (300, 200)
+
+
+def test_no_broadcast_overlay_clip(tmp_path):
+    arr = np.full((300, 200, 3), 255, np.uint8)
+    cv2.rectangle(arr, (0, 10), (90, 290), (0, 0, 0), -1)
+    cv2.rectangle(arr, (110, 10), (199, 290), (0, 0, 0), -1)
+    page = tmp_path / "page.png"
+    Image.fromarray(arr).save(page)
+    mask_dir = tmp_path / "masks" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "masks"),
+        target_size=(200, 300),
+        dwell=0.1,
+        travel=0.1,
+        overlay_mode="anchored",
+        overlay_scale=1.2,
     )
     frame = clip.get_frame(0.05)
     assert frame.shape[:2] == (300, 200)
