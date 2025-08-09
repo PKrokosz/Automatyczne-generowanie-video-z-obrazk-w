@@ -25,6 +25,24 @@ def main() -> None:
     parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
     parser.add_argument("--xfade", type=float, default=0.4, help="Crossfade między stronami (s)")
+    parser.add_argument("--settle", type=float, default=0.1, help="Długość micro-holdu (s)")
+    parser.add_argument(
+        "--easing",
+        choices=["ease", "linear"],
+        default="ease",
+        help="Rodzaj easing przy przejazdach",
+    )
+    parser.add_argument(
+        "--dwell-scale",
+        type=float,
+        default=1.0,
+        help="Globalne skalowanie czasu zatrzymania po zważeniu",
+    )
+    parser.add_argument(
+        "--align-beat",
+        action="store_true",
+        help="Wyrównaj start stron do najbliższego beatu",
+    )
     parser.add_argument(
         "--debug-panels",
         action="store_true",
@@ -65,6 +83,10 @@ def main() -> None:
             dwell=args.dwell,
             travel=args.travel,
             xfade=args.xfade,
+            settle=args.settle,
+            easing=args.easing,
+            dwell_scale=args.dwell_scale,
+            align_beat=args.align_beat,
         )
 
         audios = [

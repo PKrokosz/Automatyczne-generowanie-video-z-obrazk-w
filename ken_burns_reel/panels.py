@@ -5,17 +5,46 @@ from PIL import Image
 
 Box = Tuple[int, int, int, int]
 
-def detect_panels(img: Image.Image, min_area_ratio: float = 0.03, white_thr: int = 235) -> List[Box]:
-    rgb = np.array(img.convert("RGB"))
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
-    L = lab[:, :, 0]
-    _, mask_white = cv2.threshold(L, white_thr, 255, cv2.THRESH_BINARY)
+
+def _build_panels_mask(mask_white: np.ndarray) -> np.ndarray:
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
     gutters = cv2.morphologyEx(mask_white, cv2.MORPH_CLOSE, kernel, iterations=1)
     panels_mask = cv2.bitwise_not(gutters)
     kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     panels_mask = cv2.morphologyEx(panels_mask, cv2.MORPH_OPEN, kernel2, iterations=1)
+    return panels_mask
+
+
+def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
+    rgb = np.array(img.convert("RGB"))
+    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+    L = lab[:, :, 0]
+    med = np.median(L)
+    thr = np.clip(med + 25, 180, 245).astype(np.uint8)
+    _, mask_white = cv2.threshold(L, thr, 255, cv2.THRESH_BINARY)
+    panels_mask = _build_panels_mask(mask_white)
     num, labels, stats, _ = cv2.connectedComponentsWithStats(panels_mask, connectivity=8)
+    if num < 2:
+        _, mask_white = cv2.threshold(
+            L, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        panels_mask = _build_panels_mask(mask_white)
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(
+            panels_mask, connectivity=8
+        )
+    if num < 2:
+        mask_white = cv2.adaptiveThreshold(
+            L,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            -5,
+        )
+        panels_mask = _build_panels_mask(mask_white)
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(
+            panels_mask, connectivity=8
+        )
     H, W = panels_mask.shape
     min_area = int(min_area_ratio * W * H)
     boxes: List[Box] = []
@@ -29,6 +58,39 @@ def detect_panels(img: Image.Image, min_area_ratio: float = 0.03, white_thr: int
     return boxes
 
 def order_panels_lr_tb(boxes: List[Box], row_tol: int = 40) -> List[Box]:
+    if not boxes:
+        return []
+    # attempt simple graph-based ordering
+    n = len(boxes)
+    edges = {i: set() for i in range(n)}
+    indeg = {i: 0 for i in range(n)}
+    for i, A in enumerate(boxes):
+        Ay = A[1] + A[3] / 2
+        Ax2 = A[0] + A[2]
+        for j, B in enumerate(boxes):
+            if i == j:
+                continue
+            By = B[1]
+            Bx = B[0]
+            if Ay <= By and Ax2 <= Bx + row_tol:
+                if j not in edges[i]:
+                    edges[i].add(j)
+                    indeg[j] += 1
+    from collections import deque
+
+    q = deque([i for i in range(n) if indeg[i] == 0])
+    order_idx: List[int] = []
+    while q:
+        i = q.popleft()
+        order_idx.append(i)
+        for j in edges[i]:
+            indeg[j] -= 1
+            if indeg[j] == 0:
+                q.append(j)
+    if len(order_idx) == n:
+        return [boxes[i] for i in order_idx]
+
+    # fallback to row/column sort
     boxes = sorted(boxes, key=lambda b: (b[1], b[0]))
     rows: List[List[Box]] = []
     for b in boxes:
