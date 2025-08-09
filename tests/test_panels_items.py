@@ -285,3 +285,35 @@ def test_smear_bg_brightness_dip():
 
     assert lum(f_mid) < lum(f_start)
     assert lum(f_mid) < lum(f_end)
+
+
+def test_overlay_clip_no_broadcast(tmp_path):
+    from PIL import Image
+    import numpy as np
+    import cv2
+    from ken_burns_reel.panels import export_panels
+    from ken_burns_reel.builder import make_panels_overlay_sequence
+
+    arr = np.full((300, 200, 3), 255, np.uint8)
+    cv2.rectangle(arr, (0, 10), (90, 290), (0, 0, 0), -1)
+    cv2.rectangle(arr, (110, 10), (199, 290), (0, 0, 0), -1)
+    page = tmp_path / "page.png"
+    Image.fromarray(arr).save(page)
+
+    mask_dir = tmp_path / "masks" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "masks"),
+        target_size=(200, 300),
+        dwell=0.1,
+        travel=0.1,
+        overlay_fit=0.95,
+        overlay_margin=0,
+        fg_shadow=0.25,
+        fg_shadow_blur=8,
+        fg_shadow_offset=3,
+    )
+    frame = clip.get_frame(0.05)
+    assert frame.shape[:2] == (300, 200)
