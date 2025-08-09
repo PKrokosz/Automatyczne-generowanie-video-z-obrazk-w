@@ -51,19 +51,34 @@ import cv2
 def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
     """Return an audio clip resized to *duration* using *mode* strategy."""
     audio = AudioFileClip(path)
+
+    def _make_silence(seconds: float) -> AudioClip:
+        # Uwaga: t może być skalarem (float) albo wektorem (ndarray).
+        def _silence_make_frame(t):
+            if np.isscalar(t):
+                # zwróć (nchannels,) dla skalarnego czasu
+                return np.zeros((audio.nchannels,), dtype=np.float32)
+            # zwróć (len(t), nchannels) dla wektora czasu
+            return np.zeros((len(t), audio.nchannels), dtype=np.float32)
+
+        return AudioClip(_silence_make_frame, duration=seconds, fps=audio.fps)
+
     if mode == "trim":
-        audio = audio.subclip(0, duration)
+        # Jeśli audio krótsze niż wideo → dopełnij ciszą, żeby fadein/fadeout
+        # nie czytały poza EOF.
+        if audio.duration >= duration:
+            audio = audio.subclip(0, duration)
+        else:
+            deficit = duration - audio.duration
+            audio = concatenate_audioclips([audio, _make_silence(deficit)])
+
     elif mode == "silence":
         if audio.duration < duration:
             deficit = duration - audio.duration
-            silence = AudioClip(
-                lambda t: np.zeros((np.size(t), audio.nchannels)),
-                duration=deficit,
-                fps=audio.fps,
-            )
-            audio = concatenate_audioclips([audio, silence])
+            audio = concatenate_audioclips([audio, _make_silence(deficit)])
         else:
             audio = audio.subclip(0, duration)
+
     elif mode == "loop":
         if audio.duration >= duration:
             audio = audio.subclip(0, duration)
@@ -74,8 +89,10 @@ def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
             if rem > 0:
                 clips.append(audio.subclip(0, rem))
             audio = concatenate_audioclips(clips)
+
     else:
         raise ValueError(f"unknown audio-fit mode: {mode}")
+
     audio = audio.set_duration(duration)
     audio = audio_fadein(audio, 0.15)
     audio = audio_fadeout(audio, 0.15)
@@ -244,7 +261,8 @@ def make_panels_cam_clip(
                         W, H, boxes[i1], target_size
                     )
                     tau = (t - acc) / max(1e-6, dur)
-                    tau_e = ease_in_out(tau) if easing == "ease" else tau
+                    # Monotoniczny ease-in (rosnąca prędkość po czasie) dla travel:
+                    tau_e = (tau * tau) if easing == "ease" else tau
                     cx = int(_interp(c0x, c1x, tau_e))
                     cy = int(_interp(c0y, c1y, tau_e))
                     ww = int(_interp(w0, w1, tau_e))
