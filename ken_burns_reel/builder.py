@@ -259,7 +259,7 @@ def make_panels_cam_clip(
         boxes = order_panels_lr_tb(detect_panels(Image.fromarray(arr)))
         page_ocr = page_ocr_data(Image.fromarray(arr))
     if not boxes:
-        return ImageClip(arr).resize(newsize=target_size).set_duration(3)
+        return _set_fps(ImageClip(arr).resize(newsize=target_size).set_duration(3), fps)
 
     # panel weights for dwell time
     weights = []
@@ -505,7 +505,7 @@ def make_panels_cam_sequence(
     if audio_path:
         audio = _fit_audio_clip(audio_path, final_duration, audio_fit)
         final = final.set_audio(audio)
-    return final
+    return _set_fps(final, fps)
 
 
 def make_panels_items_sequence(
@@ -943,7 +943,7 @@ def ken_burns_scroll(
         x_center=focus_point[0],
         y_center=focus_point[1],
     )
-    return overlay_caption(zoomed, caption, screen_size)
+    return _set_fps(overlay_caption(zoomed, caption, screen_size), fps)
 
 
 def make_filmstrip(
