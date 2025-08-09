@@ -675,8 +675,8 @@ def make_panels_overlay_sequence(
     travel_ease: str = "inout",
     align_beat: bool = False,
     beat_times=None,
-    overlay_fit: float = 0.75,
-    overlay_margin: int = 0,
+    overlay_fit: float = 0.7,
+    overlay_margin: int = 12,
     overlay_mode: str = "center",
     overlay_scale: float = 1.15,
     bg_source: str = "page",
@@ -707,10 +707,20 @@ def make_panels_overlay_sequence(
             boxes = order_panels_lr_tb(
                 detect_panels(im, min_panel_area_ratio, gutter_thicken)
             )
+        Hpage, Wpage = page_arr.shape[:2]
+        cx_pg, cy_pg, win_w_pg, win_h_pg = _fit_window_to_box(
+            Wpage, Hpage, (0, 0, Wpage, Hpage), target_size
+        )
+        page_frame = (cx_pg, cy_pg, win_w_pg, win_h_pg)
         panel_folder = os.path.join(panels_dir, f"page_{idx:04d}")
         panel_files = sorted(glob.glob(os.path.join(panel_folder, "panel_*.png")))
         for box, panel_file in zip(boxes, panel_files):
-            items.append({"page": page_arr, "panel": panel_file, "box": box})
+            items.append({
+                "page": page_arr,
+                "panel": panel_file,
+                "box": box,
+                "frame": page_frame,
+            })
             if len(items) >= limit_items:
                 break
         if len(items) >= limit_items:
@@ -743,15 +753,12 @@ def make_panels_overlay_sequence(
         page_arr = it["page"]
         panel_arr = it["panel_arr"]
         box = it["box"]
-        center = it["center"]
-        end_center = center
-        end_box = box
-        if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
-            end_center = items[i + 1]["center"]
-            end_box = items[i + 1]["box"]
         Hpage, Wpage = page_arr.shape[:2]
-        cx0, cy0, w0, h0 = _fit_window_to_box(Wpage, Hpage, box, target_size)
-        cx1, cy1, w1, h1 = _fit_window_to_box(Wpage, Hpage, end_box, target_size)
+        cx0, cy0, w0, h0 = it["frame"]
+        if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
+            cx1, cy1, w1, h1 = items[i + 1]["frame"]
+        else:
+            cx1, cy1, w1, h1 = cx0, cy0, w0, h0
         win_w = max(w0, w1)
         win_h = max(h0, h1)
         left0 = int(max(0, min(cx0 - win_w // 2, Wpage - win_w)))
@@ -796,18 +803,6 @@ def make_panels_overlay_sequence(
             return frame
 
         bg = _set_fps(VideoClip(make_bg, duration=dwell + travel), fps)
-        if hasattr(ImageClip(np.zeros((Hout, Wout, 3))), "to_mask"):
-            base = ImageClip(np.zeros((Hout, Wout, 3)))
-            if hasattr(base, "with_duration"):
-                base = base.with_duration(dwell + travel)
-            else:
-                base = base.set_duration(dwell + travel)
-            mask_clip = base.to_mask()
-        else:  # MoviePy 1.x
-            mask_clip = ImageClip(
-                np.zeros((Hout, Wout)), ismask=True
-            ).set_duration(dwell + travel)
-        bg = _attach_mask(bg, mask_clip)
         bg_clips.append(bg)
 
         x0, y0, w0, h0 = alpha_bbox(panel_arr)
