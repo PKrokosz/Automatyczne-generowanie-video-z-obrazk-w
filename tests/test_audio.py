@@ -26,3 +26,15 @@ def test_audio_fades_present():
     arr1 = clip1.to_soundarray(fps=sr)
     arr2 = clip2.to_soundarray(fps=sr)
     assert arr1[-1, 0] < 1.0 and arr2[0, 0] < 1.0
+
+
+def test_final_audio_fade_rms():
+    sr = 1000
+    audio = AudioClip(lambda t: [1.0], duration=1, fps=sr)
+    audio = audio_fadein(audio, 0.15)
+    audio = audio_fadeout(audio, 0.15)
+    arr = audio.to_soundarray(fps=sr)
+    rms_start = np.sqrt(np.mean(arr[:150, 0] ** 2))
+    rms_mid = np.sqrt(np.mean(arr[400:600, 0] ** 2))
+    rms_end = np.sqrt(np.mean(arr[-150:, 0] ** 2))
+    assert rms_start < rms_mid and rms_end < rms_mid
