@@ -48,6 +48,21 @@ pip install -r requirements.txt
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) — wymagany do ekstrakcji tekstu z obrazów (OCR)
 - FFmpeg — wymagany przez MoviePy do renderowania wideo
 
+### Konfiguracja binarek
+
+Ścieżki do narzędzi zewnętrznych są rozwiązywane automatycznie w kolejności:
+
+1. Parametry CLI `--magick` / `--tesseract`.
+2. Zmienne środowiskowe `IMAGEMAGICK_BINARY` / `TESSERACT_BINARY`.
+3. Ustawienia bibliotek (MoviePy, pytesseract).
+4. Wyszukanie w `PATH` systemowym.
+
+Jeśli narzędzie nie zostanie znalezione, napisy/OCR mogą zostać pominięte.
+Na Windows upewnij się, że:
+
+- katalog ImageMagick zawiera poprawny plik `colors.xml`,
+- `tesseract.exe` znajduje się w `PATH` lub podaj do niego pełną ścieżkę.
+
 ---
 
 ## 📖 Użycie

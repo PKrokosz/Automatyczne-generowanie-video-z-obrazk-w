@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import sys
-import re
 from typing import List, Tuple
 
 import numpy as np
@@ -12,30 +11,17 @@ from moviepy.editor import (
     AudioFileClip,
     CompositeVideoClip,
     ImageClip,
-    TextClip,
     concatenate_videoclips,
 )
 from moviepy.video.fx.all import crop
-from shutil import which
-import moviepy.config as mpyconf
-import pytesseract
 
-# --- BINARIES (Windows) ---
-IMAGEMAGICK_BINARY = r"C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI\\magick.exe"
+from ken_burns_reel.bin_config import resolve_imagemagick, resolve_tesseract
+from ken_burns_reel.captions import overlay_caption
+from ken_burns_reel.focus import detect_focus_point
+from ken_burns_reel.ocr import extract_caption, verify_tesseract_available
 
-os.environ["IMAGEMAGICK_BINARY"] = IMAGEMAGICK_BINARY
-mpyconf.change_settings({"IMAGEMAGICK_BINARY": IMAGEMAGICK_BINARY})
-
-pytesseract.pytesseract.tesseract_cmd = (
-    which("tesseract") or r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
-)
-
-
-def verify_tesseract_available() -> None:
-    binary = pytesseract.pytesseract.tesseract_cmd
-    if not os.path.isfile(binary) and not which(binary):
-        raise EnvironmentError(f"Tesseract OCR not found at: {binary}")
-    print(f"✅ Tesseract OCR: {binary}")
+resolve_imagemagick()
+resolve_tesseract()
 
 
 # --- MONTAGE CONFIG ---
@@ -50,54 +36,6 @@ TRANSITION = 0.3
 ZOOM_START = 1.14
 ZOOM_END = 1.06
 PAN_MAX = 0.18
-
-CAPTION_MAXLEN = 120
-CAPTION_MIN_ALNUM = 3
-
-
-def sanitize_caption(text: str) -> str:
-    text = re.sub(r"[\\]+", "", text or "")
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:CAPTION_MAXLEN]
-
-
-def is_caption_meaningful(text: str) -> bool:
-    return sum(ch.isalnum() for ch in (text or "")) >= CAPTION_MIN_ALNUM
-
-
-def extract_caption(img_path: str) -> str:
-    img = Image.open(img_path)
-    text = pytesseract.image_to_string(img)
-    return sanitize_caption(text)
-
-
-def overlay_caption(clip: ImageClip, text: str, size: Tuple[int, int]) -> ImageClip:
-    text = sanitize_caption(text)
-    if not is_caption_meaningful(text):
-        return clip
-    W, H = size
-    try:
-        txt = TextClip(
-            text,
-            fontsize=50,
-            color="white",
-            stroke_color="black",
-            stroke_width=2,
-            method="caption",
-            size=(W - 100, None),
-        )
-    except Exception as e:
-        print(f"⚠️ TextClip fallback to 'label': {e}")
-        txt = TextClip(
-            text,
-            fontsize=50,
-            color="white",
-            stroke_color="black",
-            stroke_width=2,
-            method="label",
-        )
-    txt = txt.set_position(("center", H - 200)).set_duration(clip.duration).fadein(0.3).fadeout(0.3)
-    return CompositeVideoClip([clip, txt], size=size)
 
 
 def ken_burns_scroll(
@@ -153,7 +91,6 @@ def chunk_beats(beat_times: List[float], beats_per_image: int) -> List[Tuple[flo
 
 def make_filmstrip(input_folder: str) -> str:
     from ken_burns_reel.audio import extract_beats
-    from ken_burns_reel.focus import detect_focus_point
     from ken_burns_reel.transitions import slide_transition
 
     image_files = sorted(
@@ -187,7 +124,8 @@ def make_filmstrip(input_folder: str) -> str:
         t0, t1 = chunks[i]
         duration = max(MIN_CLIP, min(t1 - t0, MAX_CLIP))
         caption = extract_caption(path)
-        focus_point = detect_focus_point(Image.open(path))
+        with Image.open(path) as img:
+            focus_point = detect_focus_point(img)
         clip = ken_burns_scroll(path, size, duration, fps, (t0, t1), focus_point, caption)
         clips.append(clip)
         if i < n - 1:
@@ -195,7 +133,8 @@ def make_filmstrip(input_folder: str) -> str:
             next_t0, next_t1 = chunks[i + 1]
             next_duration = max(MIN_CLIP, min(next_t1 - next_t0, MAX_CLIP))
             next_caption = extract_caption(next_path)
-            next_focus = detect_focus_point(Image.open(next_path))
+            with Image.open(next_path) as img:
+                next_focus = detect_focus_point(img)
             next_clip = ken_burns_scroll(
                 next_path, size, next_duration, fps, (next_t0, next_t1), next_focus, next_caption
             )

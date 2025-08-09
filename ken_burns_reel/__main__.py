@@ -4,9 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 
-import moviepy.config as mpyconf
-import pytesseract
-
+from .bin_config import resolve_imagemagick, resolve_tesseract
 from .builder import make_filmstrip
 from .ocr import verify_tesseract_available
 
@@ -36,12 +34,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.magick:
-        os.environ["IMAGEMAGICK_BINARY"] = args.magick
-        mpyconf.change_settings({"IMAGEMAGICK_BINARY": args.magick})
-    if args.tesseract:
-        pytesseract.pytesseract.tesseract_cmd = args.tesseract
-
+    resolve_imagemagick(args.magick)
+    resolve_tesseract(args.tesseract)
     verify_tesseract_available()
 
     if args.debug_panels:
