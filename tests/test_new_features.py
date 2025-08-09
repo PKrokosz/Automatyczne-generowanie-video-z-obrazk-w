@@ -59,7 +59,7 @@ def test_preview_profile_smaller(tmp_path: Path) -> None:
         rng = np.random.default_rng(int(t * 30))
         return rng.integers(0, 255, (320, 320, 3), dtype=np.uint8)
 
-    clip = VideoClip(make_frame=make_frame, duration=2).set_fps(30)
+    clip = VideoClip(make_frame, duration=2).set_fps(30)
     audio = AudioClip(lambda t: [0.5], duration=2, fps=44100)
     clip = clip.set_audio(audio)
     prof_q = _export_profile("quality", "h264", (64, 64))

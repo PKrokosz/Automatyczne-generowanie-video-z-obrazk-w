@@ -16,6 +16,21 @@ def _build_panels_mask(mask_white: np.ndarray) -> np.ndarray:
     return panels_mask
 
 
+def alpha_bbox(arr: np.ndarray) -> Box:
+    """Return bounding box of non-zero alpha in RGBA array."""
+    if arr.shape[-1] < 4:
+        h, w = arr.shape[:2]
+        return (0, 0, w, h)
+    alpha = arr[:, :, 3]
+    ys, xs = np.where(alpha > 0)
+    if xs.size == 0 or ys.size == 0:
+        h, w = alpha.shape
+        return (0, 0, w, h)
+    x0, x1 = xs.min(), xs.max() + 1
+    y0, y1 = ys.min(), ys.max() + 1
+    return (int(x0), int(y0), int(x1 - x0), int(y1 - y0))
+
+
 def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
     rgb = np.array(img.convert("RGB"))
     lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)

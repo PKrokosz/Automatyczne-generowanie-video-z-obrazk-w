@@ -102,6 +102,18 @@ python -m ken_burns_reel panels --mode panels-items \
   --profile social
 ```
 
+### Overlay mode (page + masked panels)
+
+```bash
+python -m ken_burns_reel . --mode panels-overlay \
+  --overlay-fit 0.75 --bg-source page \
+  --parallax-bg 0.85 --parallax-fg 0.0
+```
+
+W tym trybie pełna strona stanowi tło z płynnym ruchem między panelami,
+a pojedynczy panel (z zachowaną białą ramką) pojawia się na środku
+kadru jako nakładka z cieniem.
+
 ---
 
 ## 📂 Struktura projektu
