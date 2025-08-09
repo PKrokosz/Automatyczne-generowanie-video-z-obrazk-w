@@ -95,6 +95,9 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             audio_path = candidates[0]
             if args.align_beat:
                 beat_times = extract_beats(audio_path)
+        elif args.align_beat:
+            print("⚠️ Nie znaleziono pliku audio – wideo bez wyrównania do beatów.")
+            args.align_beat = False
 
         clip = make_panels_overlay_sequence(
             page_paths,
