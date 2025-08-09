@@ -25,11 +25,12 @@ def main() -> None:
     parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
     parser.add_argument("--xfade", type=float, default=0.4, help="Crossfade między stronami (s)")
-    parser.add_argument("--settle", type=float, default=0.1, help="Długość micro-holdu (s)")
+    parser.add_argument("--settle", type=float, default=0.14, help="Długość micro-holdu (s)")
     parser.add_argument(
-        "--easing",
-        choices=["ease", "linear"],
-        default="ease",
+        "--travel-ease",
+        dest="travel_ease",
+        choices=["in", "out", "inout", "linear"],
+        default="inout",
         help="Rodzaj easing przy przejazdach",
     )
     parser.add_argument(
@@ -77,15 +78,59 @@ def main() -> None:
     parser.add_argument(
         "--bg-parallax",
         type=float,
-        default=0.02,
+        default=0.85,
         help="Siła paralaksy tła podczas travelu",
     )
     parser.add_argument(
-        "--preview",
-        action="store_true",
-        help="Tryb podglądu (CRF 30, 720x1280, 24 fps, audio 96k)",
+        "--panel-bleed",
+        type=int,
+        default=24,
+        help="Margines przy kadrowaniu panelu (px)",
     )
+    parser.add_argument(
+        "--zoom-max",
+        type=float,
+        default=1.06,
+        help="Maksymalne dodatkowe przybliżenie dla małego tekstu",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=["preview", "social", "quality"],
+        default="social",
+        help="Preset eksportu",
+    )
+    parser.add_argument("--preview", action="store_true", help="Skrót dla --profile preview")
+    parser.add_argument(
+        "--codec",
+        choices=["h264", "hevc"],
+        default="h264",
+        help="Kodek wideo",
+    )
+    parser.add_argument("--size", help="Docelowy rozmiar WxH")
+    parser.add_argument(
+        "--aspect",
+        choices=["9:16", "16:9", "1:1"],
+        help="Proporcje (z --height)",
+    )
+    parser.add_argument("--height", type=int, help="Wysokość dla --aspect")
     args = parser.parse_args()
+
+    if args.preview:
+        args.profile = "preview"
+
+    target_size = (1080, 1920)
+    if args.size:
+        try:
+            w, h = args.size.lower().split("x")
+            target_size = (int(w), int(h))
+        except Exception as e:  # pragma: no cover - argparse ensures format
+            raise argparse.ArgumentTypeError("--size format WxH") from e
+    elif args.aspect and args.height:
+        ratios = {"9:16": 9 / 16, "16:9": 16 / 9, "1:1": 1.0}
+        ratio = ratios[args.aspect]
+        h = args.height
+        w = int(round(h * ratio))
+        target_size = (w, h)
 
     resolve_imagemagick(args.magick)
     resolve_tesseract(args.tesseract)
@@ -127,13 +172,13 @@ def main() -> None:
 
         clip = make_panels_cam_sequence(
             images,
-            target_size=(1080, 1920),
+            target_size=target_size,
             fps=30,
             dwell=args.dwell,
             travel=args.travel,
             xfade=args.xfade,
             settle=args.settle,
-            easing=args.easing,
+            travel_ease=args.travel_ease,
             dwell_scale=args.dwell_scale,
             align_beat=args.align_beat,
             beat_times=beat_times,
@@ -143,11 +188,12 @@ def main() -> None:
             bg_mode=args.bg_mode,
             page_scale=args.page_scale,
             bg_parallax=args.bg_parallax,
-            preview=args.preview,
+            panel_bleed=args.panel_bleed,
+            zoom_max=args.zoom_max,
         )
         out_path = os.path.join(args.folder, "final_video.mp4")
-        prof = _export_profile(args.preview)
-        if prof["resize"]:
+        prof = _export_profile(args.profile, args.codec, target_size)
+        if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
         clip.write_videofile(
             out_path,
@@ -156,9 +202,16 @@ def main() -> None:
             audio_codec=prof["audio_codec"],
             audio_bitrate=prof["audio_bitrate"],
             ffmpeg_params=prof["ffmpeg_params"],
+            preset=prof["preset"],
         )
     else:
-        make_filmstrip(args.folder, audio_fit=args.audio_fit, preview=args.preview)
+        make_filmstrip(
+            args.folder,
+            audio_fit=args.audio_fit,
+            profile=args.profile,
+            codec=args.codec,
+            target_size=target_size,
+        )
 
 
 if __name__ == "__main__":
