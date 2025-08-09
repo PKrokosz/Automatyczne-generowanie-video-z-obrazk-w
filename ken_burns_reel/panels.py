@@ -142,6 +142,8 @@ def export_panels(
     out_dir: str,
     mode: str = "rect",
     bleed: int = 24,
+    tight_border: int = 1,
+    feather: int = 1,
 ) -> List[str]:
     """Detect panels in *image_path* and export them to *out_dir*.
 
@@ -150,13 +152,17 @@ def export_panels(
     image_path:
         Path to the source page image.
     out_dir:
-        Destination directory. A panel_<NNNN>.png file is written for each
+        Destination directory. A ``panel_<NNNN>.png`` file is written for each
         detected panel.
     mode:
         ``"rect"`` saves rectangular crops. ``"mask"`` saves RGBA images where
         gutters are transparent.
     bleed:
         Extra pixels around each panel crop.
+    tight_border:
+        Number of pixels to erode from the panel mask edge when ``mode="mask"``.
+    feather:
+        Radius for Gaussian blur applied to the alpha mask when ``mode="mask"``.
     """
 
     os.makedirs(out_dir, exist_ok=True)
@@ -204,6 +210,11 @@ def export_panels(
             lbl = label_map[(x, y, w, h)]
             m = (labels == lbl).astype(np.uint8) * 255
             mask_crop = m[y0:y1, x0:x1]
+            if tight_border > 0:
+                kernel = np.ones((tight_border, tight_border), np.uint8)
+                mask_crop = cv2.erode(mask_crop, kernel, iterations=1)
+            if feather > 0:
+                mask_crop = cv2.GaussianBlur(mask_crop, (0, 0), feather)
             rgba = np.dstack([crop, mask_crop])
             im_out = Image.fromarray(rgba, mode="RGBA")
         else:

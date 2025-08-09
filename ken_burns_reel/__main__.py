@@ -36,12 +36,18 @@ def _zoom_max_type(x: str) -> float:
         raise argparse.ArgumentTypeError("--zoom-max must be >= 1.0")
     return v
 
+
+def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> None:
+    """Placeholder implementation for upcoming one-click workflow."""
+    raise NotImplementedError("--oneclick mode is not implemented yet")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Ken Burns style video")
     parser.add_argument("folder", help="Input folder with images and audio")
     parser.add_argument("--tesseract", help="Path to Tesseract binary")
     parser.add_argument("--magick", help="Path to ImageMagick binary")
     parser.add_argument("--export-panels", help="Export detected panels to folder")
+    parser.add_argument("--oneclick", action="store_true", help="Tryb one-click: auto video from pages and audio")
     parser.add_argument(
         "--export-mode",
         choices=["rect", "mask"],
@@ -56,6 +62,19 @@ def main() -> None:
             "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli"
         ),
     )
+    parser.add_argument("--limit-items", type=int, default=999, help="Limit liczby paneli w oneclick")
+    parser.add_argument("--tight-border", type=int, default=1, help="Erozja konturu w eksporcie mask (px)")
+    parser.add_argument("--feather", type=int, default=1, help="Feather alpha w eksporcie mask (px)")
+    parser.add_argument(
+        "--enhance",
+        choices=["none", "comic"],
+        default="comic",
+        help="Tryb poprawy paneli",
+    )
+    parser.add_argument("--enhance-strength", type=float, default=1.0, help="Siła enhance")
+    parser.add_argument("--shadow", type=float, default=0.2, help="Opacity cienia pod panelem")
+    parser.add_argument("--shadow-blur", type=int, default=12, help="Rozmycie cienia (px)")
+    parser.add_argument("--shadow-offset", type=int, default=3, help="Offset cienia (px)")
     parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
     parser.add_argument("--xfade", type=float, default=0.4, help="Crossfade między stronami (s)")
@@ -201,7 +220,18 @@ def main() -> None:
             raise FileNotFoundError("Brak obrazów w folderze.")
         for i, path in enumerate(images, 1):
             out_sub = os.path.join(args.export_panels, f"page_{i:04d}")
-            export_panels(path, out_sub, mode=args.export_mode)
+            export_panels(
+                path,
+                out_sub,
+                mode=args.export_mode,
+                bleed=args.panel_bleed,
+                tight_border=args.tight_border,
+                feather=args.feather,
+            )
+        return
+
+    if args.oneclick:
+        _run_oneclick(args, target_size)
         return
 
     resolve_imagemagick(args.magick)

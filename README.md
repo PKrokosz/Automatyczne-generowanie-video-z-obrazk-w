@@ -37,6 +37,29 @@ python -m ken_burns_reel . --mode panels ^
   --profile social
 ```
 
+## One-click
+
+Tryb eksperymentalny generujący film z folderu stron i pliku audio jedną komendą.
+
+**PowerShell**
+
+```powershell
+python -m ken_burns_reel . `
+  --oneclick `
+  --limit-items 10 `
+  --align-beat `
+  --profile preview `
+  --aspect 9:16 --height 1080
+```
+
+**Bash / CMD** (jedna linia):
+
+```bash
+python -m ken_burns_reel . --oneclick --limit-items 10 --align-beat --profile preview --aspect 9:16 --height 1080
+```
+
+Obrazy mogą znajdować się w bieżącym katalogu lub podfolderze `pages/`. Dźwięk szukany jest w katalogu nadrzędnym.
+
 Przykłady wymiarowania:
 
 ```bash
