@@ -121,6 +121,13 @@ kadru jako nakładka z cieniem. Ruch kamery można wygładzić parametrem
 Ustawienie `page` kadruje oryginalną stronę, nakłada delikatną tonację
 oraz winietę, dzięki czemu tło jest stonowane.
 
+`--bg-source`:
+
+- `page` (crop strony z toningiem)
+- `blur`
+- `stretch`
+- `gradient`
+
 ---
 
 ## 📂 Struktura projektu
