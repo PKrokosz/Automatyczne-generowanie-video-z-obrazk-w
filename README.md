@@ -41,24 +41,19 @@ python -m ken_burns_reel . --mode panels ^
 
 Tryb eksperymentalny generujący film z folderu stron i pliku audio jedną komendą.
 
-**PowerShell**
+**PowerShell (jedna linia)**
 
 ```powershell
-python -m ken_burns_reel . `
-  --oneclick `
-  --limit-items 10 `
-  --align-beat `
-  --profile preview `
-  --aspect 9:16 --height 1080
+python -m ken_burns_reel . --oneclick --limit-items 10 --align-beat --profile preview --aspect 9:16 --height 1080
 ```
 
-**Bash / CMD** (jedna linia):
+**Bash (jedna linia)**
 
 ```bash
 python -m ken_burns_reel . --oneclick --limit-items 10 --align-beat --profile preview --aspect 9:16 --height 1080
 ```
 
-Obrazy mogą znajdować się w bieżącym katalogu lub podfolderze `pages/`. Dźwięk szukany jest w katalogu nadrzędnym.
+Obrazy mogą znajdować się w bieżącym katalogu lub podfolderze `pages/`. Dźwięk szukany jest w katalogu nadrzędnym. Jeśli nie zostanie znaleziony plik audio, wideo powstanie bez wyrównania do beatów, a skrypt wypisze stosowną informację.
 
 Przykłady wymiarowania:
 
@@ -107,19 +102,24 @@ python -m ken_burns_reel panels --mode panels-items \
 ```bash
 python -m ken_burns_reel . --mode panels-overlay \
   --overlay-fit 0.75 --bg-source page \
-  --parallax-bg 0.85 --parallax-fg 0.0
+  --parallax-bg 0.85 --parallax-fg 0.08 \
+  --travel-ease inout
 ```
 
 W tym trybie pełna strona stanowi tło z płynnym ruchem między panelami,
 a pojedynczy panel (z zachowaną białą ramką) pojawia się na środku
-kadru jako nakładka z cieniem.
+kadru jako nakładka z cieniem. Ruch kamery można wygładzić parametrem
+`--travel-ease inout`.
 
 `--bg-source`:
 
-- `page` (crop strony z toningiem)
+- `page` (crop strony z toningiem i winietą)
 - `blur`
 - `stretch`
 - `gradient`
+
+Ustawienie `page` kadruje oryginalną stronę, nakłada delikatną tonację
+oraz winietę, dzięki czemu tło jest stonowane.
 
 ---
 
