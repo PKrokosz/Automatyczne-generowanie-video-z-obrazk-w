@@ -6,6 +6,7 @@ import math
 import os
 import json
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 try:
@@ -881,50 +882,87 @@ def make_panels_overlay_sequence(
         )
 
     # prepare per-segment timing and optional quantization
-    seg_timings: List[Tuple[float, float, float, float]] = []
+    @dataclass
+    class SegmentTiming:
+        """Per-segment timing values and snap offset."""
+
+        start: float
+        dwell: float
+        travel: float
+        settle: float
+        snap_delta: float = 0.0
+
+    seg_timings: List[SegmentTiming] = []
     start_t = 0.0
     for _ in items:
-        seg_timings.append([start_t, dwell, travel, settle, 0.0])
+        seg_timings.append(SegmentTiming(start_t, dwell, travel, settle))
         start_t += dwell + travel + settle
+
+    # optional snapping to detected beats before grid quantization
+    if align_beat and beat_times:
+        snapped: List[SegmentTiming] = []
+        for s in seg_timings:
+            start, d, tr, st = s.start, s.dwell, s.travel, s.settle
+            if start == 0.0:
+                snapped.append(SegmentTiming(start, d, tr, st, 0.0))
+                continue
+            nearest = min(beat_times, key=lambda b: abs(b - start))
+            delta = nearest - start
+            if abs(delta) <= 0.08 and d - delta >= max(0.2, readability_ms / 1000.0):
+                start = nearest
+                if delta > 0:
+                    d = d - delta
+                else:
+                    st = min(settle_max, st - delta)
+            snapped.append(SegmentTiming(start, d, tr, st, delta))
+        seg_timings = snapped
+
+    # then optional BPM grid quantization
     if bpm and quantize != "off":
         beat = 60.0 / bpm
         step = beat if quantize == "1/4" else beat / 2.0
-        new_timings: List[List[float]] = []
-        for start, d, tr, st, _ in seg_timings:
+        new_timings: List[SegmentTiming] = []
+        for s in seg_timings:
+            start, d, tr, st = s.start, s.dwell, s.travel, s.settle
             delta = 0.0
             if start != 0:
                 q = round(start / step) * step
                 delta = q - start
                 if abs(delta) <= 0.1:
                     st += delta
+                    st = max(0.0, st)
+                    st = max(settle_min, min(settle_max, st))
                     start = q
-            new_timings.append([start, d, tr, st, delta])
+            new_timings.append(SegmentTiming(start, d, tr, st, delta))
         seg_timings = new_timings
         overlay_jitter = 0.0
-    timing_log = []
-    for idx, (start, d, tr, st, delta) in enumerate(seg_timings):
+
+    timing_log: List[Dict[str, float]] = []
+    meta = {"timing_profile": timing_profile, "bpm": bpm}
+    timing_log.append(meta)
+    for idx, s in enumerate(seg_timings):
         row = {
             "index": idx,
-            "start": round(start, 3),
-            "dwell": round(d, 3),
-            "travel": round(tr, 3),
-            "settle": round(st, 3),
-            "snap_delta": round(delta, 3),
+            "start": round(s.start, 3),
+            "dwell": round(s.dwell, 3),
+            "travel": round(s.travel, 3),
+            "settle": round(s.settle, 3),
+            "snap_delta": round(s.snap_delta, 3),
         }
         if bpm:
             beat_len = 60.0 / bpm
-            row["beat_index"] = round(start / beat_len, 3)
+            row["beat_index"] = round(s.start / beat_len, 3)
         timing_log.append(row)
-    if timing_log:
-        try:
-            with open("timing_log.jsonl", "w", encoding="utf8") as f:
-                for row in timing_log:
-                    f.write(json.dumps(row) + "\n")
-        except OSError:
-            pass
+    try:
+        with open("timing_log.jsonl", "w", encoding="utf8") as f:
+            for row in timing_log:
+                f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
 
     for i, it in enumerate(items):
-        start, dwell, travel, settle, _ = seg_timings[i]
+        s = seg_timings[i]
+        start, dwell, travel, settle = s.start, s.dwell, s.travel, s.settle
         page_arr = it["page"]
         panel_arr = it["panel_arr"]
         box = it["box"]
@@ -1085,8 +1123,10 @@ def make_panels_overlay_sequence(
                     x_pos += (dst_w - ow) // 2
                     y_pos += (dst_h - oh) // 2
                 if overlay_jitter > 0:
-                    x_pos += int(round(np.random.normal(0, overlay_jitter)))
-                    y_pos += int(round(np.random.normal(0, overlay_jitter)))
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
                 if fg_shadow > 0:
                     sx = x_pos + fg_shadow_offset
                     sy = y_pos + fg_shadow_offset
@@ -1114,8 +1154,10 @@ def make_panels_overlay_sequence(
                     x_pos += (dst_w - ow) // 2
                     y_pos += (dst_h - oh) // 2
                 if overlay_jitter > 0:
-                    x_pos += int(round(np.random.normal(0, overlay_jitter)))
-                    y_pos += int(round(np.random.normal(0, overlay_jitter)))
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, 3] / 255.0
 
@@ -1198,8 +1240,10 @@ def make_panels_overlay_sequence(
                     x_pos += (nw - ow) // 2
                     y_pos += (nh - oh) // 2
                 if overlay_jitter > 0:
-                    x_pos += int(round(np.random.normal(0, overlay_jitter)))
-                    y_pos += int(round(np.random.normal(0, overlay_jitter)))
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
                 if fg_shadow > 0:
                     sx = x_pos + fg_shadow_offset
                     sy = y_pos + fg_shadow_offset
@@ -1227,8 +1271,10 @@ def make_panels_overlay_sequence(
                     x_pos += (nw - ow) // 2
                     y_pos += (nh - oh) // 2
                 if overlay_jitter > 0:
-                    x_pos += int(round(np.random.normal(0, overlay_jitter)))
-                    y_pos += int(round(np.random.normal(0, overlay_jitter)))
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, 3] / 255.0
 
@@ -1256,10 +1302,11 @@ def make_panels_overlay_sequence(
     n = len(fg_clips)
     seq: List[VideoClip] = []
     for i in range(n):
-        start, dwell_i, travel_i, settle_i, _ = seg_timings[i]
+        s = seg_timings[i]
+        dwell_i, travel_i, settle_i = s.dwell, s.travel, s.settle
         comp = _with_duration(
             CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size),
-            dwell_i + travel_i,
+            dwell_i + travel_i + settle_i,
         )
         comp = _set_fps(comp, fps)
         seg_dur = dwell_i + settle_i
