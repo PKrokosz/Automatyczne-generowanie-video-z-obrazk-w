@@ -203,7 +203,7 @@ def main() -> None:
         "--bg-source",
         choices=["page", "blur", "stretch", "gradient"],
         default="page",
-        help="Underlay w trybie overlay",
+        help="Źródło tła: page (crop strony z toningiem), blur, stretch, gradient",
     )
     parser.add_argument(
         "--bg-tone-strength",
@@ -211,7 +211,12 @@ def main() -> None:
         default=0.7,
         help="Siła tonowania tła",
     )
-    parser.add_argument("--fg-shadow", type=_parallax_type, default=0.25, help="Opacity cienia pod panelem")
+    parser.add_argument(
+        "--fg-shadow",
+        type=_parallax_type,
+        default=0.25,
+        help="Opacity cienia pod panelem (0..1, 0 = brak cienia)",
+    )
     parser.add_argument("--fg-shadow-blur", type=_clamp_nonneg_int, default=18, help="Rozmycie cienia fg")
     parser.add_argument("--fg-shadow-offset", type=_clamp_nonneg_int, default=4, help="Offset cienia fg")
     parser.add_argument(
@@ -365,11 +370,24 @@ def main() -> None:
         if args.items_from:
             panels_dir = args.items_from
         else:
-            tmpd = tempfile.mkdtemp()
-            for i, p in enumerate(page_paths, 1):
-                out_sub = os.path.join(tmpd, f"page_{i:04d}")
-                export_panels(p, out_sub, mode="mask", bleed=0, tight_border=0, feather=1)
-            panels_dir = tmpd
+            try:
+                tmpd = tempfile.mkdtemp()
+                for i, p in enumerate(page_paths, 1):
+                    out_sub = os.path.join(tmpd, f"page_{i:04d}")
+                    export_panels(
+                        p,
+                        out_sub,
+                        mode="mask",
+                        bleed=0,
+                        tight_border=0,
+                        feather=1,
+                    )
+                panels_dir = tmpd
+            except Exception as e:
+                raise SystemExit(
+                    "Failed to export panels to temporary directory. "
+                    "Use --items-from to supply existing masks."
+                ) from e
 
         beat_times = None
         audios = [
