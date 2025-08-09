@@ -65,7 +65,9 @@ def main() -> None:
 
     if args.mode == "panels":
         from .builder import make_panels_cam_sequence
+        from .audio import extract_beats
         from moviepy.editor import AudioFileClip
+        from moviepy.audio.fx import audio_fadein, audio_fadeout
 
         images = [
             os.path.join(args.folder, f)
@@ -75,6 +77,18 @@ def main() -> None:
         images.sort(key=lambda s: os.path.basename(s).lower())
         if not images:
             raise FileNotFoundError("Brak obrazów w folderze.")
+
+        beat_times = None
+        audios = [
+            f
+            for f in os.listdir(args.folder)
+            if os.path.splitext(f)[1].lower() in {".mp3", ".wav", ".m4a"}
+        ]
+        audio_path = None
+        if audios:
+            audio_path = os.path.join(args.folder, audios[0])
+            if args.align_beat:
+                beat_times = extract_beats(audio_path)
 
         clip = make_panels_cam_sequence(
             images,
@@ -87,17 +101,13 @@ def main() -> None:
             easing=args.easing,
             dwell_scale=args.dwell_scale,
             align_beat=args.align_beat,
+            beat_times=beat_times,
         )
-
-        audios = [
-            f
-            for f in os.listdir(args.folder)
-            if os.path.splitext(f)[1].lower() in {".mp3", ".wav", ".m4a"}
-        ]
-        if audios:
-            clip = clip.set_audio(
-                AudioFileClip(os.path.join(args.folder, audios[0]))
-            )
+        if audio_path:
+            audioclip = AudioFileClip(audio_path)
+            audioclip = audio_fadein.audio_fadein(audioclip, 0.15)
+            audioclip = audio_fadeout.audio_fadeout(audioclip, 0.15)
+            clip = clip.set_audio(audioclip)
         out_path = os.path.join(args.folder, "final_video.mp4")
         clip.write_videofile(out_path, fps=30, codec="libx264")
     else:

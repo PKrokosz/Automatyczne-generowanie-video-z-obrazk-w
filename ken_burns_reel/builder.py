@@ -11,7 +11,9 @@ from moviepy.editor import (
     ImageClip,
     CompositeVideoClip,
     concatenate_videoclips,
+    VideoClip,
 )
+from moviepy.audio.fx import audio_fadein, audio_fadeout
 from moviepy.video.fx.all import crop
 from PIL import Image
 
@@ -195,6 +197,7 @@ def make_panels_cam_sequence(
     easing: str = "ease",
     dwell_scale: float = 1.0,
     align_beat: bool = False,
+    beat_times: List[float] | None = None,
 ):
     """
     Buduje jeden film, sklejając panel-camera clippy dla wszystkich stron.
@@ -215,11 +218,33 @@ def make_panels_cam_sequence(
         )
         for p in image_paths
     ]
+
+    # prepare start times
+    starts = [0.0]
+    for i in range(1, len(clips)):
+        start = starts[i - 1] + clips[i - 1].duration - xfade
+        if align_beat and beat_times:
+            nearest = min(beat_times, key=lambda b: abs(b - start))
+            delta = nearest - start
+            if abs(delta) <= 0.08:
+                start = nearest
+                clips[i] = clips[i].set_duration(clips[i].duration - delta)
+        starts.append(start)
+
+    # apply start times and crossfades
+    for i, clip in enumerate(clips):
+        clip = clip.set_start(starts[i])
+        if i > 0:
+            clip = clip.crossfadein(xfade)
+        clips[i] = clip
+
+    # audio fades for crossfade
     for i in range(len(clips) - 1):
         clips[i] = clips[i].audio_fadeout(0.15)
         clips[i + 1] = clips[i + 1].audio_fadein(0.15)
-    # Crossfade między stronami
-    final = concatenate_videoclips(clips, method="compose", padding=-xfade)
+
+    final_duration = starts[-1] + clips[-1].duration
+    final = CompositeVideoClip(clips, size=target_size).set_duration(final_duration)
     return final
 
 
@@ -281,7 +306,10 @@ def make_filmstrip(input_folder: str) -> str:
         clips.append(clip)
 
     final_clip = concatenate_videoclips(clips, method="compose")
-    final_clip = final_clip.set_audio(AudioFileClip(audio_path))
+    audioclip = AudioFileClip(audio_path)
+    audioclip = audio_fadein.audio_fadein(audioclip, 0.15)
+    audioclip = audio_fadeout.audio_fadeout(audioclip, 0.15)
+    final_clip = final_clip.set_audio(audioclip)
     output_path = os.path.join(input_folder, "final_video.mp4")
     final_clip.write_videofile(output_path, fps=30, codec="libx264")
     return output_path
