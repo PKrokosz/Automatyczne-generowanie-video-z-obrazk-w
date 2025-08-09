@@ -76,7 +76,7 @@ def smear_transition(
     dx, dy = vec
 
     def make_frame(t):
-        p = t / duration
+        p = t / max(1e-6, duration)
         frame_prev = tail.get_frame(t).astype(np.uint8)
         frame_next = head.get_frame(t).astype(np.uint8)
         acc_prev = np.zeros_like(frame_prev, dtype=np.float32)
@@ -174,7 +174,7 @@ def smear_bg_crossfade_fg(
     dx, dy = vec
 
     def make_bg(t):
-        p = t / duration
+        p = t / max(1e-6, duration)
         frame_prev = tbg.get_frame(t).astype(np.uint8)
         frame_next = hbg.get_frame(t).astype(np.uint8)
         acc_prev = np.zeros_like(frame_prev, dtype=np.float32)

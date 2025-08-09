@@ -127,6 +127,8 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             fg_shadow_offset=args.fg_shadow_offset,
             fg_glow=args.fg_glow,
             fg_glow_blur=args.fg_glow_blur,
+            overlay_edge=args.overlay_edge,
+            overlay_edge_strength=args.overlay_edge_strength,
             min_panel_area_ratio=args.min_panel_area_ratio,
             gutter_thicken=args.gutter_thicken,
             debug_overlay=args.debug_overlay,
@@ -263,6 +265,18 @@ def main() -> None:
         help="Tekstura tła",
     )
     parser.add_argument(
+        "--overlay-edge",
+        choices=["feather", "torn"],
+        default="feather",
+        help="Typ krawędzi panelu overlay",
+    )
+    parser.add_argument(
+        "--overlay-edge-strength",
+        type=float,
+        default=0.6,
+        help="Siła efektu krawędzi overlay",
+    )
+    parser.add_argument(
         "--page-scale",
         type=_page_scale_type,
         default=0.92,
@@ -340,7 +354,7 @@ def main() -> None:
     parser.add_argument(
         "--overlay-scale",
         type=float,
-        default=1.15,
+        default=None,
         help="Mnożnik skali panelu względem lokalnej skali tła",
     )
     parser.add_argument(
@@ -438,6 +452,11 @@ def main() -> None:
         args.fg_glow = 0.10 if args.mode == "panels-overlay" else 0.0
     if args.fg_glow_blur is None:
         args.fg_glow_blur = 24
+    # łagodniejsze powiększenie paneli
+    if args.mode == "panels-overlay" and (
+        args.overlay_scale is None or args.overlay_scale == 1.6
+    ):
+        args.overlay_scale = 1.45
 
     if args.preview:
         args.profile = "preview"
@@ -642,6 +661,8 @@ def main() -> None:
             fg_shadow_mode=args.fg_shadow_mode,
             fg_glow=args.fg_glow,
             fg_glow_blur=args.fg_glow_blur,
+            overlay_edge=args.overlay_edge,
+            overlay_edge_strength=args.overlay_edge_strength,
             min_panel_area_ratio=args.min_panel_area_ratio,
             gutter_thicken=args.gutter_thicken,
             debug_overlay=args.debug_overlay,
