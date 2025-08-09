@@ -21,6 +21,11 @@ def _parallax_type(x: str) -> float:
     return max(0.0, min(1.0, v))
 
 
+def _parallax_fg_type(x: str) -> float:
+    v = float(x)
+    return max(0.0, min(0.5, v))
+
+
 def _nonneg_int(x: str) -> int:
     v = int(x)
     if v < 0:
@@ -200,11 +205,23 @@ def main() -> None:
         default="page",
         help="Underlay w trybie overlay",
     )
+    parser.add_argument(
+        "--bg-tone-strength",
+        type=_parallax_type,
+        default=0.7,
+        help="Siła tonowania tła",
+    )
     parser.add_argument("--fg-shadow", type=_parallax_type, default=0.25, help="Opacity cienia pod panelem")
     parser.add_argument("--fg-shadow-blur", type=_clamp_nonneg_int, default=18, help="Rozmycie cienia fg")
     parser.add_argument("--fg-shadow-offset", type=_clamp_nonneg_int, default=4, help="Offset cienia fg")
+    parser.add_argument(
+        "--fg-shadow-mode",
+        choices=["soft", "hard"],
+        default="soft",
+        help="Tryb cienia foreground",
+    )
     parser.add_argument("--parallax-bg", type=_parallax_type, default=0.85, help="Paralaksa tła overlay")
-    parser.add_argument("--parallax-fg", type=_parallax_type, default=0.0, help="Paralaksa panelu")
+    parser.add_argument("--parallax-fg", type=_parallax_fg_type, default=0.0, help="Paralaksa panelu")
     parser.add_argument("--items-from", help="Folder z maskami paneli")
     args = parser.parse_args()
 
@@ -373,14 +390,17 @@ def main() -> None:
             fps=30,
             dwell=args.dwell,
             travel=args.travel,
+            travel_ease=args.travel_ease,
             overlay_fit=args.overlay_fit,
             overlay_margin=args.overlay_margin,
             bg_source=args.bg_source,
+            bg_tone_strength=args.bg_tone_strength,
             parallax_bg=args.parallax_bg,
             parallax_fg=args.parallax_fg,
             fg_shadow=args.fg_shadow,
             fg_shadow_blur=args.fg_shadow_blur,
             fg_shadow_offset=args.fg_shadow_offset,
+            fg_shadow_mode=args.fg_shadow_mode,
             limit_items=args.limit_items,
             trans=args.trans,
             trans_dur=args.trans_dur,

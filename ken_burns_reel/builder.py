@@ -135,6 +135,25 @@ def ease_in_out(t: float) -> float:
     return 0.5 - 0.5 * math.cos(math.pi * t)
 
 
+def ease_in(t: float) -> float:
+    """Cosine ease-in for t in [0,1]."""
+    return 1 - math.cos(0.5 * math.pi * t)
+
+
+def ease_out(t: float) -> float:
+    """Cosine ease-out for t in [0,1]."""
+    return math.sin(0.5 * math.pi * t)
+
+
+def _get_ease_fn(name: str):
+    return {
+        "linear": lambda t: t,
+        "in": ease_in,
+        "out": ease_out,
+        "inout": ease_in_out,
+    }.get(name, ease_in_out)
+
+
 def apply_clahe_rgb(arr):
     lab = cv2.cvtColor(arr, cv2.COLOR_RGB2LAB)
     L, a, b = cv2.split(lab)
@@ -153,6 +172,16 @@ def apply_clahe_rgb(arr):
         lab2 = cv2.merge([Lg, a, b])
         arr2 = cv2.cvtColor(lab2, cv2.COLOR_LAB2RGB)
     return arr2
+
+
+def enhance_panel(arr: np.ndarray) -> np.ndarray:
+    """Enhance RGBA panel; process RGB and keep alpha."""
+    if arr.shape[-1] < 4:
+        rgb = apply_clahe_rgb(arr)
+        return rgb
+    rgb = apply_clahe_rgb(arr[:, :, :3])
+    alpha = arr[:, :, 3:4]
+    return np.concatenate([rgb, alpha], axis=2)
 
 
 def _make_underlay(arr: np.ndarray, target_size: Tuple[int, int], mode: str) -> np.ndarray:
@@ -582,11 +611,13 @@ def make_panels_overlay_sequence(
     overlay_fit: float = 0.75,
     overlay_margin: int = 0,
     bg_source: str = "page",
+    bg_tone_strength: float = 0.7,
     parallax_bg: float = 0.85,
     parallax_fg: float = 0.0,
     fg_shadow: float = 0.25,
     fg_shadow_blur: int = 18,
     fg_shadow_offset: int = 4,
+    fg_shadow_mode: str = "soft",
     limit_items: int = 999,
     trans: str = "smear",
     trans_dur: float = 0.3,
@@ -625,6 +656,15 @@ def make_panels_overlay_sequence(
     bg_clips: List[VideoClip] = []
     fg_clips: List[VideoClip] = []
 
+    ease_fn = _get_ease_fn(travel_ease)
+    parallax_fg = max(0.0, min(0.5, parallax_fg))
+    bg_tone_strength = max(0.0, min(1.0, bg_tone_strength))
+
+    if fg_shadow_mode == "hard":
+        fg_shadow_blur = max(1, fg_shadow_blur // 2)
+        fg_shadow += 0.05
+    fg_shadow = max(0.0, min(0.5, fg_shadow))
+
     for i, it in enumerate(items):
         page_arr = it["page"]
         panel_arr = it["panel_arr"]
@@ -651,13 +691,32 @@ def make_panels_overlay_sequence(
                     l, tp = l0, t0
                 else:
                     p = (t - dwell) / max(1e-6, travel)
-                    p = ease_in_out(p)
+                    p = ease_fn(p)
                     l = l0 + parallax_bg * (l1 - l0) * p
                     tp = t0 + parallax_bg * (t1 - t0) * p
                 l = int(max(0, min(l, Wpage - win_w)))
                 tp = int(max(0, min(tp, Hpage - win_h)))
                 crop = arr[tp : tp + win_h, l : l + win_w]
-                frame = cv2.resize(crop, (Wout, Hout), interpolation=cv2.INTER_CUBIC)
+                frame_raw = cv2.resize(crop, (Wout, Hout), interpolation=cv2.INTER_CUBIC)
+                if bg_tone_strength > 0:
+                    hsv = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2HSV).astype(np.float32)
+                    hsv[:, :, 1] *= 0.8
+                    hsv[:, :, 2] *= 0.85
+                    toned = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+                    yy, xx = np.mgrid[0:Hout, 0:Wout]
+                    dist = np.sqrt((xx - Wout / 2) ** 2 + (yy - Hout / 2) ** 2)
+                    dist /= dist.max() + 1e-6
+                    vign = 1 - 0.15 * dist
+                    toned = (toned.astype(np.float32) * vign[..., None]).astype(np.uint8)
+                    frame = cv2.addWeighted(
+                        frame_raw.astype(np.float32),
+                        1 - bg_tone_strength,
+                        toned.astype(np.float32),
+                        bg_tone_strength,
+                        0,
+                    ).astype(np.uint8)
+                else:
+                    frame = frame_raw
             else:
                 frame = _make_underlay(arr, target_size, bg_source)
             return frame
@@ -667,40 +726,81 @@ def make_panels_overlay_sequence(
         bg_clips.append(bg)
 
         x0, y0, w0, h0 = alpha_bbox(panel_arr)
+        if panel_arr.shape[-1] < 4 or w0 <= 0 or h0 <= 0 or np.all(panel_arr[:, :, 3] == 0):
+            x, y, w, h = box
+            panel_arr = np.dstack(
+                [
+                    page_arr[y : y + h, x : x + w],
+                    np.full((h, w, 1), 255, dtype=np.uint8),
+                ]
+            )
+            x0, y0, w0, h0 = 0, 0, w, h
         panel = panel_arr[y0 : y0 + h0, x0 : x0 + w0]
+        panel = enhance_panel(panel)
         ph, pw = panel.shape[:2]
-        max_h = overlay_fit * Hout - 2 * overlay_margin
-        max_w = Wout - 2 * overlay_margin
-        scale = min(max_h / max(1, ph), max_w / max(1, pw))
+        scale = min(overlay_fit * Hout / max(1, ph), Wout / max(1, pw))
         nw = int(round(pw * scale))
         nh = int(round(ph * scale))
+        nw = min(nw, Wout - 2 * overlay_margin)
+        nh = min(nh, Hout - 2 * overlay_margin)
+        x_base = (Wout - nw) // 2
+        y_base = (Hout - nh) // 2
+        x_base = max(overlay_margin, min(x_base, Wout - overlay_margin - nw))
+        y_base = max(overlay_margin, min(y_base, Hout - overlay_margin - nh))
         resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
-        canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
-        x_pos = (Wout - nw) // 2
-        y_pos = (Hout - nh) // 2
-        if fg_shadow > 0:
-            mask_alpha = resized[:, :, 3]
-            if fg_shadow_blur > 0:
-                shadow = gaussian_blur(mask_alpha, sigma=fg_shadow_blur)
-            else:
-                shadow = mask_alpha
-            shadow = (shadow.astype(np.float32) * (fg_shadow / 255.0))
-            sx = x_pos + fg_shadow_offset
-            sy = y_pos + fg_shadow_offset
-            ex = sx + nw
-            ey = sy + nh
-            for c in range(3):
-                region = canvas[sy:ey, sx:ex, c].astype(np.float32)
-                canvas[sy:ey, sx:ex, c] = np.clip(region * (1 - shadow), 0, 255)
-        canvas[y_pos : y_pos + nh, x_pos : x_pos + nw] = resized
-        img = canvas[:, :, :3]
-        mask_img = canvas[:, :, 3] / 255.0
-        fg = (
-            ImageClip(img, ismask=False)
-            .set_mask(ImageClip(mask_img, ismask=True))
-            .set_duration(dwell + travel)
+        mask_alpha = resized[:, :, 3]
+        alpha_norm = mask_alpha.astype(np.float32) / 255.0
+        rgb = resized[:, :, :3]
+        scale_x = Wout / win_w
+        scale_y = Hout / win_h
+
+        def _pos(t, xb=x_base, yb=y_base):
+            offx = offy = 0.0
+            if t > dwell:
+                p = (t - dwell) / max(1e-6, travel)
+                p = ease_fn(p)
+                offx = (cx1 - cx0) * parallax_fg * p * scale_x
+                offy = (cy1 - cy0) * parallax_fg * p * scale_y
+            x_pos = int(round(xb + offx))
+            y_pos = int(round(yb + offy))
+            x_pos = max(0, min(x_pos, Wout - nw))
+            y_pos = max(0, min(y_pos, Hout - nh))
+            return x_pos, y_pos
+
+        def make_fg_frame(t, rgb=rgb, alpha=mask_alpha):
+            canvas = np.zeros((Hout, Wout, 3), dtype=np.uint8)
+            x_pos, y_pos = _pos(t)
+            if fg_shadow > 0:
+                if fg_shadow_blur > 0:
+                    shadow = gaussian_blur(alpha, sigma=fg_shadow_blur)
+                else:
+                    shadow = alpha
+                shadow = shadow.astype(np.float32) * (fg_shadow / 255.0)
+                sx = x_pos + fg_shadow_offset
+                sy = y_pos + fg_shadow_offset
+                ex = min(Wout, sx + nw)
+                ey = min(Hout, sy + nh)
+                sh = shadow[: ey - sy, : ex - sx][..., None]
+                region = canvas[sy:ey, sx:ex].astype(np.float32)
+                canvas[sy:ey, sx:ex] = np.clip(region * (1 - sh), 0, 255)
+            ex = x_pos + nw
+            ey = y_pos + nh
+            canvas[y_pos:ey, x_pos:ex] = rgb
+            return canvas
+
+        def make_fg_mask(t, alpha=alpha_norm):
+            mask = np.zeros((Hout, Wout), dtype=np.float32)
+            x_pos, y_pos = _pos(t)
+            ex = x_pos + nw
+            ey = y_pos + nh
+            mask[y_pos:ey, x_pos:ex] = alpha
+            return mask
+
+        fg = _set_fps(VideoClip(make_fg_frame, duration=dwell + travel), fps)
+        fg_mask = _set_fps(
+            VideoClip(make_fg_mask, duration=dwell + travel, ismask=True), fps
         )
-        fg = _set_fps(fg, fps)
+        fg = fg.set_mask(fg_mask)
         fg_clips.append(fg)
 
     seq: List[VideoClip] = []
