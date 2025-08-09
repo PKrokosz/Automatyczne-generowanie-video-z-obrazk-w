@@ -184,6 +184,66 @@ def enhance_panel(arr: np.ndarray) -> np.ndarray:
     return np.concatenate([rgb, alpha], axis=2)
 
 
+def _paste_rgba_clipped(canvas: np.ndarray, overlay: np.ndarray, x: int, y: int) -> None:
+    """Safely paste *overlay* onto *canvas* with clipping.
+
+    Both arrays are expected in RGBA format. The overlay may extend beyond the
+    canvas bounds; only the intersecting region will be copied.
+    """
+    H, W = canvas.shape[:2]
+    h, w = overlay.shape[:2]
+
+    sx, sy = x, y
+    ex, ey = x + w, y + h
+
+    dst_x0 = max(0, sx)
+    dst_y0 = max(0, sy)
+    dst_x1 = min(W, ex)
+    dst_y1 = min(H, ey)
+
+    src_x0 = max(0, -sx)
+    src_y0 = max(0, -sy)
+    src_x1 = src_x0 + (dst_x1 - dst_x0)
+    src_y1 = src_y0 + (dst_y1 - dst_y0)
+
+    if (dst_x1 <= dst_x0) or (dst_y1 <= dst_y0):
+        return
+
+    canvas[dst_y0:dst_y1, dst_x0:dst_x1, :3] = overlay[src_y0:src_y1, src_x0:src_x1, :3]
+    canvas[dst_y0:dst_y1, dst_x0:dst_x1, 3] = overlay[src_y0:src_y1, src_x0:src_x1, 3]
+
+
+def _darken_region_with_alpha_clipped(
+    canvas_rgb: np.ndarray, alpha_map: np.ndarray, x: int, y: int, strength: float
+) -> None:
+    """Darken *canvas_rgb* using *alpha_map* placed at (x, y) with clipping."""
+    H, W = canvas_rgb.shape[:2]
+    h, w = alpha_map.shape[:2]
+
+    sx, sy = x, y
+    ex, ey = x + w, y + h
+
+    dst_x0 = max(0, sx)
+    dst_y0 = max(0, sy)
+    dst_x1 = min(W, ex)
+    dst_y1 = min(H, ey)
+
+    src_x0 = max(0, -sx)
+    src_y0 = max(0, -sy)
+    src_x1 = src_x0 + (dst_x1 - dst_x0)
+    src_y1 = src_y0 + (dst_y1 - dst_y0)
+
+    if (dst_x1 <= dst_x0) or (dst_y1 <= dst_y0):
+        return
+
+    region = canvas_rgb[dst_y0:dst_y1, dst_x0:dst_x1, :].astype(np.float32)
+    a = alpha_map[src_y0:src_y1, src_x0:src_x1].astype(np.float32) / 255.0
+    mult = (1.0 - strength * a)[..., None]
+    canvas_rgb[dst_y0:dst_y1, dst_x0:dst_x1, :] = np.clip(region * mult, 0, 255).astype(
+        np.uint8
+    )
+
+
 def _make_underlay(arr: np.ndarray, target_size: Tuple[int, int], mode: str) -> np.ndarray:
     """Generate a background underlay for the page based on *mode*.
 
@@ -749,8 +809,10 @@ def make_panels_overlay_sequence(
         y_base = max(overlay_margin, min(y_base, Hout - overlay_margin - nh))
         resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
         mask_alpha = resized[:, :, 3]
-        alpha_norm = mask_alpha.astype(np.float32) / 255.0
-        rgb = resized[:, :, :3]
+        if fg_shadow_blur > 0:
+            shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
+        else:
+            shadow = mask_alpha
         scale_x = Wout / win_w
         scale_y = Hout / win_h
 
@@ -767,34 +829,23 @@ def make_panels_overlay_sequence(
             y_pos = max(0, min(y_pos, Hout - nh))
             return x_pos, y_pos
 
-        def make_fg_frame(t, rgb=rgb, alpha=mask_alpha):
-            canvas = np.zeros((Hout, Wout, 3), dtype=np.uint8)
+        def make_fg_frame(t, overlay=resized, shadow_map=shadow):
+            canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
             x_pos, y_pos = _pos(t)
             if fg_shadow > 0:
-                if fg_shadow_blur > 0:
-                    shadow = gaussian_blur(alpha, sigma=fg_shadow_blur)
-                else:
-                    shadow = alpha
-                shadow = shadow.astype(np.float32) * (fg_shadow / 255.0)
                 sx = x_pos + fg_shadow_offset
                 sy = y_pos + fg_shadow_offset
-                ex = min(Wout, sx + nw)
-                ey = min(Hout, sy + nh)
-                sh = shadow[: ey - sy, : ex - sx][..., None]
-                region = canvas[sy:ey, sx:ex].astype(np.float32)
-                canvas[sy:ey, sx:ex] = np.clip(region * (1 - sh), 0, 255)
-            ex = x_pos + nw
-            ey = y_pos + nh
-            canvas[y_pos:ey, x_pos:ex] = rgb
-            return canvas
+                _darken_region_with_alpha_clipped(
+                    canvas[:, :, :3], shadow_map, sx, sy, float(fg_shadow)
+                )
+            _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+            return canvas[:, :, :3]
 
-        def make_fg_mask(t, alpha=alpha_norm):
-            mask = np.zeros((Hout, Wout), dtype=np.float32)
+        def make_fg_mask(t, overlay=resized):
+            canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
             x_pos, y_pos = _pos(t)
-            ex = x_pos + nw
-            ey = y_pos + nh
-            mask[y_pos:ey, x_pos:ex] = alpha
-            return mask
+            _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+            return canvas[:, :, 3] / 255.0
 
         fg = _set_fps(VideoClip(make_fg_frame, duration=dwell + travel), fps)
         fg_mask = _set_fps(
