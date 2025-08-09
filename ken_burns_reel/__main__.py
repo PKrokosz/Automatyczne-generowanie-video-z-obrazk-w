@@ -45,8 +45,94 @@ def _zoom_max_type(x: str) -> float:
 
 
 def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> None:
-    """Placeholder implementation for upcoming one-click workflow."""
-    raise NotImplementedError("--oneclick mode is not implemented yet")
+    """Run simplified one-click workflow for comic pages."""
+
+    from .panels import export_panels
+    from .builder import make_panels_overlay_sequence
+    from .audio import extract_beats
+    import tempfile
+
+    resolve_imagemagick(args.magick)
+    resolve_tesseract(args.tesseract)
+    verify_tesseract_available()
+
+    pages_dir = os.path.join(args.folder, "pages")
+    if not os.path.isdir(pages_dir):
+        pages_dir = args.folder
+
+    page_paths = [
+        os.path.join(pages_dir, f)
+        for f in os.listdir(pages_dir)
+        if os.path.splitext(f)[1].lower() in {".jpg", ".jpeg", ".png"}
+    ]
+    page_paths.sort(key=lambda s: os.path.basename(s).lower())
+    if not page_paths:
+        raise FileNotFoundError("Brak obrazów stron.")
+
+    with tempfile.TemporaryDirectory(prefix="panels_tmp") as tmpdir:
+        for i, path in enumerate(page_paths, 1):
+            out_sub = os.path.join(tmpdir, f"page_{i:04d}")
+            export_panels(
+                path,
+                out_sub,
+                mode="mask",
+                bleed=12,
+                tight_border=2,
+                feather=2,
+            )
+
+        beat_times = None
+        audio_path = None
+        audio_exts = {".mp3", ".wav", ".m4a"}
+        candidates = []
+        for base in {args.folder, os.path.dirname(args.folder)}:
+            if os.path.isdir(base):
+                for f in os.listdir(base):
+                    if os.path.splitext(f)[1].lower() in audio_exts:
+                        candidates.append(os.path.join(base, f))
+        candidates.sort(key=lambda s: os.path.basename(s).lower())
+        if candidates:
+            audio_path = candidates[0]
+            if args.align_beat:
+                beat_times = extract_beats(audio_path)
+
+        clip = make_panels_overlay_sequence(
+            page_paths,
+            tmpdir,
+            target_size=target_size,
+            fps=30,
+            dwell=args.dwell,
+            travel=args.travel,
+            travel_ease="inout",
+            align_beat=args.align_beat,
+            beat_times=beat_times,
+            overlay_fit=0.75,
+            bg_source="page",
+            parallax_bg=0.85,
+            parallax_fg=0.08,
+            limit_items=args.limit_items,
+            trans="smear",
+            trans_dur=0.30,
+            smear_strength=1.1,
+        )
+
+        if audio_path:
+            audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit)
+            clip = clip.set_audio(audio)
+
+        out_path = os.path.join(args.folder, "final_video.mp4")
+        prof = _export_profile(args.profile, args.codec, target_size)
+        if prof.get("resize"):
+            clip = clip.resize(newsize=prof["resize"])
+        clip.write_videofile(
+            out_path,
+            fps=prof["fps"],
+            codec=prof["codec"],
+            audio_codec=prof["audio_codec"],
+            audio_bitrate=prof["audio_bitrate"],
+            ffmpeg_params=prof["ffmpeg_params"],
+            preset=prof["preset"],
+        )
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Ken Burns style video")
@@ -64,7 +150,7 @@ def main() -> None:
     parser.add_argument(
         "--mode",
         choices=["classic", "panels", "panels-items", "panels-overlay"],
-        default="classic",
+        default=None,
         help=(
             "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli; panels-overlay: tło strona, foreground panel"
         ),
@@ -229,6 +315,9 @@ def main() -> None:
     parser.add_argument("--parallax-fg", type=_parallax_fg_type, default=0.0, help="Paralaksa panelu")
     parser.add_argument("--items-from", help="Folder z maskami paneli")
     args = parser.parse_args()
+
+    if args.mode is None:
+        args.mode = "panels-overlay" if args.oneclick else "classic"
 
     if args.preview:
         args.profile = "preview"
