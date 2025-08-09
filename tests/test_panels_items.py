@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import cv2
 from PIL import Image
 
 from ken_burns_reel.panels import export_panels
@@ -8,7 +9,11 @@ from ken_burns_reel.transitions import (
     whip_pan_transition,
     smear_bg_crossfade_fg,
 )
-from ken_burns_reel.builder import make_panels_items_sequence, make_panels_overlay_sequence
+from ken_burns_reel.builder import (
+    make_panels_items_sequence,
+    make_panels_overlay_sequence,
+    _fit_window_to_box,
+)
 
 try:
     from moviepy.editor import ColorClip
@@ -147,3 +152,136 @@ def test_smear_bg_crossfade_fg_edges():
     edges = cv2.Canny(frame_mid, 50, 150)
     assert edges.mean() > 5
     assert frame_mid.mean() < frame_start.mean()
+
+
+def test_overlay_travel_ease(tmp_path):
+    page = _make_test_page(tmp_path)
+    mask_dir = tmp_path / "mask" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    # make foreground transparent to examine background crop directly
+    for img_path in mask_dir.glob("panel_*.png"):
+        with Image.open(img_path).convert("RGBA") as im:
+            arr = np.array(im)
+        arr[:, :, 3] = 0
+        Image.fromarray(arr).save(img_path)
+
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "mask"),
+        target_size=(200, 100),
+        dwell=0.1,
+        travel=0.4,
+        travel_ease="linear",
+        parallax_bg=1.0,
+        parallax_fg=0.0,
+        overlay_fit=0.75,
+    )
+    mid_t = 0.1 + 0.4 * 0.5
+    frame = clip.get_frame(mid_t)
+
+    # expected crop center
+    box0 = (10, 10, 80, 80)
+    box1 = (110, 10, 80, 80)
+    cx0, cy0, w0, h0 = _fit_window_to_box(200, 100, box0, (200, 100))
+    cx1, cy1, w1, h1 = _fit_window_to_box(200, 100, box1, (200, 100))
+    win_w = max(w0, w1)
+    win_h = max(h0, h1)
+    left0 = int(max(0, min(cx0 - win_w // 2, 200 - win_w)))
+    left1 = int(max(0, min(cx1 - win_w // 2, 200 - win_w)))
+    top0 = int(max(0, min(cy0 - win_h // 2, 100 - win_h)))
+    top1 = int(max(0, min(cy1 - win_h // 2, 100 - win_h)))
+    exp_left = left0 + (left1 - left0) * 0.5
+    exp_top = top0 + (top1 - top0) * 0.5
+    exp_cx = exp_left + win_w / 2
+    exp_cy = exp_top + win_h / 2
+
+    # locate actual crop within page via template matching
+    page_arr = np.array(Image.open(page).convert("RGB"))
+    frame_small = cv2.resize(frame, (win_w, win_h), interpolation=cv2.INTER_AREA)
+    res = cv2.matchTemplate(page_arr, frame_small, cv2.TM_SQDIFF)
+    _, _, loc, _ = cv2.minMaxLoc(res)
+    act_cx = loc[0] + win_w / 2
+    act_cy = loc[1] + win_h / 2
+
+    assert abs(act_cx - exp_cx) <= 10
+    assert abs(act_cy - exp_cy) <= 10
+
+
+def test_overlay_parallax_fg(tmp_path):
+    page = _make_test_page(tmp_path)
+    mask_dir = tmp_path / "mask" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "mask"),
+        target_size=(200, 100),
+        dwell=0.1,
+        travel=0.2,
+        travel_ease="linear",
+        parallax_bg=0.0,
+        parallax_fg=0.1,
+    )
+    t_start = 0.1 + 0.01
+    t_end = 0.1 + 0.2 - 0.01
+    f0 = clip.get_frame(t_start)
+    f1 = clip.get_frame(t_end)
+    assert np.mean(np.abs(f1.astype(np.int16) - f0.astype(np.int16))) > 1
+
+
+def test_overlay_enhance_applied(tmp_path):
+    arr = np.full((100, 200, 3), 255, dtype=np.uint8)
+    cv2.rectangle(arr, (10, 10), (90, 90), (200, 200, 200), -1)
+    cv2.rectangle(arr, (10, 10), (90, 90), (0, 0, 0), 2)
+    cv2.line(arr, (10, 50), (90, 50), (205, 205, 205), 1)
+    page = tmp_path / "page.png"
+    Image.fromarray(arr).save(page)
+    mask_dir = tmp_path / "mask" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    panel_path = mask_dir / "panel_0001.png"
+    with Image.open(panel_path) as im:
+        orig = np.array(im.convert("RGB"))
+
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "mask"),
+        target_size=(200, 100),
+        dwell=0.1,
+        travel=0.1,
+        parallax_bg=0.0,
+        parallax_fg=0.0,
+        overlay_fit=0.5,
+    )
+    frame = clip.get_frame(0)
+    mask = clip.mask.get_frame(0)
+    ys, xs = np.where(mask > 0.1)
+    fg = frame[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
+
+    def sobel_var(a: np.ndarray) -> float:
+        g = cv2.cvtColor(a, cv2.COLOR_RGB2GRAY)
+        gx = cv2.Sobel(g, cv2.CV_64F, 1, 0, ksize=3)
+        gy = cv2.Sobel(g, cv2.CV_64F, 0, 1, ksize=3)
+        mag2 = gx ** 2 + gy ** 2
+        return float(mag2.var())
+
+    assert sobel_var(fg) > sobel_var(orig)
+
+
+def test_smear_bg_brightness_dip():
+    from moviepy.editor import ColorClip
+
+    bg1 = ColorClip(size=(50, 50), color=(50, 50, 50)).set_duration(1).set_fps(24)
+    bg2 = ColorClip(size=(50, 50), color=(60, 60, 60)).set_duration(1).set_fps(24)
+    fg = ColorClip(size=(50, 50), color=(255, 255, 255)).set_duration(1).set_fps(24)
+    trans = smear_bg_crossfade_fg(
+        bg1, bg2, fg, fg, 0.4, (50, 50), vec=(10, 0), fps=24, bg_brightness_dip=0.1
+    )
+    f_start = trans.get_frame(0)
+    f_mid = trans.get_frame(0.2)
+    f_end = trans.get_frame(0.4 - 1e-6)
+
+    def lum(a):
+        r, g, b = a[..., 0], a[..., 1], a[..., 2]
+        return float((0.299 * r + 0.587 * g + 0.114 * b).mean())
+
+    assert lum(f_mid) < lum(f_start)
+    assert lum(f_mid) < lum(f_end)
