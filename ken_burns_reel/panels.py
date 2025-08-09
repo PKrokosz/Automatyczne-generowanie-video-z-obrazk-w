@@ -56,9 +56,9 @@ def debug_detect_panels(folder: str) -> None:
     if not images:
         raise FileNotFoundError("Brak obrazów do debugowania.")
     image_path = os.path.join(folder, images[0])
-    img = Image.open(image_path)
-    boxes = order_panels_lr_tb(detect_panels(img))
-    vis = np.array(img.convert("RGB")).copy()
+    with Image.open(image_path) as img:
+        boxes = order_panels_lr_tb(detect_panels(img))
+        vis = np.array(img.convert("RGB")).copy()
     for i, (x, y, w, h) in enumerate(boxes):
         cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 0, 255), 3)
         cv2.putText(

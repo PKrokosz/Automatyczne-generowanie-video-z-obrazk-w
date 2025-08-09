@@ -17,7 +17,7 @@ from PIL import Image
 from .audio import extract_beats
 from .focus import detect_focus_point
 from .ocr import extract_caption
-from .utils import overlay_caption
+from .captions import overlay_caption
 from .config import IMAGE_EXTS, AUDIO_EXTS
 
 # Panel camera imports
@@ -53,13 +53,14 @@ def make_panels_cam_clip(
     travel: float = 0.6,
 ):
     """Animate camera between comic panels detected in the image."""
-    img = Image.open(image_path)
-    W, H = img.size
-    boxes = order_panels_lr_tb(detect_panels(img))
+    with Image.open(image_path) as im:
+        W, H = im.size
+        boxes = order_panels_lr_tb(detect_panels(im))
+        arr = np.array(im)
     if not boxes:
-        return ImageClip(np.array(img)).resize(newsize=target_size).set_duration(3)
+        return ImageClip(arr).resize(newsize=target_size).set_duration(3)
 
-    base = ImageClip(np.array(img)).set_duration(1).set_fps(fps)
+    base = ImageClip(arr).set_duration(1).set_fps(fps)
     segs = []
     for i in range(len(boxes)):
         segs.append(("dwell", i))
@@ -185,8 +186,8 @@ def make_filmstrip(input_folder: str) -> str:
     clips: List[CompositeVideoClip] = []
     for i, path in enumerate(image_files):
         caption = extract_caption(path)
-        img = Image.open(path)
-        focus_point = detect_focus_point(img)
+        with Image.open(path) as img:
+            focus_point = detect_focus_point(img)
         t0 = beat_times[i] if i < len(beat_times) else beat_times[-1]
         t1 = beat_times[i + 1] if i + 1 < len(beat_times) else t0 + 0.6
         duration = t1 - t0
