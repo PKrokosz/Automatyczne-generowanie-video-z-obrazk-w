@@ -53,6 +53,34 @@ Rekomendowana wartość `--page-scale` mieści się w zakresie `0.90–0.95`.
 
 ---
 
+### Eksport paneli
+
+```bash
+python -m ken_burns_reel input_pages --export-panels panels --export-mode rect
+```
+
+### Tryb panel-first
+
+**PowerShell** (multiline backtick)
+
+```powershell
+python -m ken_burns_reel .\panels `
+  --mode panels-items `
+  --trans smear --trans-dur 0.32 --smear-strength 1.1 `
+  --bg-mode blur --page-scale 0.92 --bg-parallax 0.85 `
+  --profile preview
+```
+
+**Bash**
+
+```bash
+python -m ken_burns_reel panels --mode panels-items \
+  --size 1920x1080 --trans whip --trans-dur 0.28 \
+  --profile social
+```
+
+---
+
 ## 📂 Struktura projektu
 
 ```

@@ -41,12 +41,19 @@ def main() -> None:
     parser.add_argument("folder", help="Input folder with images and audio")
     parser.add_argument("--tesseract", help="Path to Tesseract binary")
     parser.add_argument("--magick", help="Path to ImageMagick binary")
+    parser.add_argument("--export-panels", help="Export detected panels to folder")
+    parser.add_argument(
+        "--export-mode",
+        choices=["rect", "mask"],
+        default="rect",
+        help="Panel export mode",
+    )
     parser.add_argument(
         "--mode",
-        choices=["classic", "panels"],
+        choices=["classic", "panels", "panels-items"],
         default="classic",
         help=(
-            "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu"
+            "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli"
         ),
     )
     parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
@@ -122,6 +129,24 @@ def main() -> None:
         help="Maksymalne dodatkowe przybliżenie dla małego tekstu",
     )
     parser.add_argument(
+        "--trans",
+        choices=["xfade", "slide", "smear", "whip"],
+        default="smear",
+        help="Przejście między panelami w trybie panels-items",
+    )
+    parser.add_argument(
+        "--trans-dur",
+        type=float,
+        default=0.3,
+        help="Długość przejścia między panelami (s)",
+    )
+    parser.add_argument(
+        "--smear-strength",
+        type=float,
+        default=1.0,
+        help="Siła smuga dla przejścia smear",
+    )
+    parser.add_argument(
         "--profile",
         choices=["preview", "social", "quality"],
         default="social",
@@ -162,6 +187,22 @@ def main() -> None:
         h = args.height
         w = int(round(h * ratio))
         target_size = (w, h)
+
+    if args.export_panels:
+        from .panels import export_panels
+
+        images = [
+            os.path.join(args.folder, f)
+            for f in os.listdir(args.folder)
+            if os.path.splitext(f)[1].lower() in {".jpg", ".jpeg", ".png"}
+        ]
+        images.sort(key=lambda s: os.path.basename(s).lower())
+        if not images:
+            raise FileNotFoundError("Brak obrazów w folderze.")
+        for i, path in enumerate(images, 1):
+            out_sub = os.path.join(args.export_panels, f"page_{i:04d}")
+            export_panels(path, out_sub, mode=args.export_mode)
+        return
 
     resolve_imagemagick(args.magick)
     resolve_tesseract(args.tesseract)
@@ -221,6 +262,43 @@ def main() -> None:
             bg_parallax=args.bg_parallax,
             panel_bleed=args.panel_bleed,
             zoom_max=args.zoom_max,
+        )
+        out_path = os.path.join(args.folder, "final_video.mp4")
+        prof = _export_profile(args.profile, args.codec, target_size)
+        if prof.get("resize"):
+            clip = clip.resize(newsize=prof["resize"])
+        clip.write_videofile(
+            out_path,
+            fps=prof["fps"],
+            codec=prof["codec"],
+            audio_codec=prof["audio_codec"],
+            audio_bitrate=prof["audio_bitrate"],
+            ffmpeg_params=prof["ffmpeg_params"],
+            preset=prof["preset"],
+        )
+    elif args.mode == "panels-items":
+        from .builder import make_panels_items_sequence
+
+        panel_paths = [
+            os.path.join(args.folder, f)
+            for f in os.listdir(args.folder)
+            if os.path.splitext(f)[1].lower() in {".jpg", ".jpeg", ".png"}
+        ]
+        panel_paths.sort(key=lambda s: os.path.basename(s).lower())
+        if not panel_paths:
+            raise FileNotFoundError("Brak paneli w folderze.")
+        clip = make_panels_items_sequence(
+            panel_paths,
+            target_size=target_size,
+            fps=30,
+            dwell=args.dwell,
+            trans=args.trans,
+            trans_dur=args.trans_dur,
+            smear_strength=args.smear_strength,
+            zoom_max=args.zoom_max,
+            page_scale=args.page_scale,
+            bg_mode=args.bg_mode,
+            bg_parallax=args.bg_parallax,
         )
         out_path = os.path.join(args.folder, "final_video.mp4")
         prof = _export_profile(args.profile, args.codec, target_size)

@@ -41,6 +41,11 @@ from .focus import detect_focus_point
 from .ocr import extract_caption, text_boxes_stats, page_ocr_data
 from .captions import overlay_caption
 from .config import IMAGE_EXTS, AUDIO_EXTS
+from .transitions import (
+    slide_transition,
+    smear_transition,
+    whip_pan_transition,
+)
 
 # Panel camera imports
 import numpy as np
@@ -469,6 +474,94 @@ def make_panels_cam_sequence(
         audio = _fit_audio_clip(audio_path, final_duration, audio_fit)
         final = final.set_audio(audio)
     return final
+
+
+def make_panels_items_sequence(
+    panel_paths: List[str],
+    target_size=(1080, 1920),
+    fps: int = 30,
+    dwell: float = 0.7,
+    trans: str = "smear",
+    trans_dur: float = 0.3,
+    smear_strength: float = 1.0,
+    zoom_max: float = 1.06,
+    page_scale: float = 0.92,
+    bg_mode: str = "blur",
+    bg_parallax: float = 0.85,
+) -> CompositeVideoClip:
+    """Build a sequence from pre-cropped panel images."""
+
+    if not panel_paths:
+        raise ValueError("make_panels_items_sequence: empty panel_paths")
+
+    Wout, Hout = target_size
+    fw = int(Wout * page_scale)
+    fh = int(Hout * page_scale)
+    x0 = (Wout - fw) // 2
+    y0 = (Hout - fh) // 2
+
+    def _panel_clip(path: str) -> VideoClip:
+        with Image.open(path) as im:
+            arr = np.array(im.convert("RGB"))
+        underlay = _make_underlay(arr, target_size, bg_mode)
+        ah, aw = arr.shape[:2]
+        scale0 = max(fw / aw, fh / ah)
+        base = cv2.resize(
+            arr, (int(aw * scale0), int(ah * scale0)), interpolation=cv2.INTER_CUBIC
+        )
+
+        def make_frame(t: float):
+            p = min(1.0, t / max(1e-6, dwell))
+            s = 1 + (zoom_max - 1) * p
+            w = int(base.shape[1] * s)
+            h = int(base.shape[0] * s)
+            resized = cv2.resize(base, (w, h), interpolation=cv2.INTER_CUBIC)
+            left = (w - fw) // 2
+            top = (h - fh) // 2
+            fg = resized[top : top + fh, left : left + fw]
+            canvas = underlay.copy()
+            canvas[y0 : y0 + fh, x0 : x0 + fw] = fg
+            return canvas[:, :, ::-1]
+
+        return VideoClip(make_frame=make_frame, duration=dwell + trans_dur).set_fps(fps)
+
+    full_clips = [_panel_clip(p) for p in panel_paths]
+
+    seq: List[VideoClip] = []
+    for i, clip in enumerate(full_clips):
+        seq.append(clip.subclip(0, dwell))
+        if i < len(full_clips) - 1:
+            vec = (0.0, 0.0)
+            nxt = full_clips[i + 1]
+            if trans == "slide":
+                tclip = slide_transition(clip, nxt, trans_dur, target_size, fps)
+            elif trans == "xfade":
+                tail = clip.subclip(dwell - trans_dur, dwell)
+                head = nxt.subclip(0, trans_dur)
+                tclip = (
+                    CompositeVideoClip(
+                        [tail.crossfadeout(trans_dur), head.crossfadein(trans_dur)],
+                        size=target_size,
+                    )
+                    .set_duration(trans_dur)
+                    .set_fps(fps)
+                )
+            elif trans == "whip":
+                tclip = whip_pan_transition(clip, nxt, trans_dur, target_size, vec, fps=fps)
+            else:  # smear
+                tclip = smear_transition(
+                    clip,
+                    nxt,
+                    trans_dur,
+                    target_size,
+                    vec,
+                    strength=smear_strength,
+                    fps=fps,
+                )
+            seq.append(tclip)
+
+    final = concatenate_videoclips(seq, method="compose")
+    return final.set_fps(fps)
 
 
 def _export_profile(profile: str, codec: str, target_size: Tuple[int, int]) -> Dict[str, object]:
