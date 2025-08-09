@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 import cv2
+from .utils import gaussian_blur, _set_fps
 
 try:
     from moviepy.editor import CompositeVideoClip, VideoClip
@@ -25,12 +26,11 @@ def slide_transition(prev_clip, next_clip, duration: float, size: Tuple[int, int
     def move_right(t):
         return ((1 - t / duration) * W, 0)
 
-    return (
+    return _set_fps(
         CompositeVideoClip(
             [tail.set_pos(move_left), head.set_pos(move_right)], size=size
-        )
-        .set_duration(duration)
-        .set_fps(fps)
+        ).set_duration(duration),
+        fps,
     )
 
 
@@ -75,7 +75,7 @@ def smear_transition(
         frame = (1 - alpha) * smear_prev + alpha * smear_next
         return np.clip(frame, 0, 255).astype(np.uint8)
 
-    return VideoClip(make_frame, duration=duration).set_fps(fps)
+    return _set_fps(VideoClip(make_frame, duration=duration), fps)
 
 
 def whip_pan_transition(
@@ -115,15 +115,15 @@ def whip_pan_transition(
         blur = int(1 + 6 * p * (1 - p))
         if blur % 2 == 0:
             blur += 1
-        prev_b = cv2.GaussianBlur(prev_w, (blur, blur), 0)
-        next_b = cv2.GaussianBlur(next_w, (blur, blur), 0)
+        prev_b = gaussian_blur(prev_w, (blur, blur))
+        next_b = gaussian_blur(next_w, (blur, blur))
         alpha = p
         frame = (1 - alpha) * prev_b + alpha * next_b
         if 0.4 <= p <= 0.6:
             frame *= 0.9
         return np.clip(frame, 0, 255).astype(np.uint8)
 
-    return VideoClip(make_frame, duration=duration).set_fps(fps)
+    return _set_fps(VideoClip(make_frame, duration=duration), fps)
 
 
 def smear_bg_crossfade_fg(
@@ -173,16 +173,14 @@ def smear_bg_crossfade_fg(
         frame = (1 - alpha) * smear_prev + alpha * smear_next
         return np.clip(frame, 0, 255).astype(np.uint8)
 
-    bg_clip = VideoClip(make_bg, duration=duration).set_fps(fps)
-    fg_clip = (
+    bg_clip = _set_fps(VideoClip(make_bg, duration=duration), fps)
+    fg_clip = _set_fps(
         CompositeVideoClip(
             [tfg.crossfadeout(duration), hfg.crossfadein(duration)], size=size
-        )
-        .set_duration(duration)
-        .set_fps(fps)
+        ).set_duration(duration),
+        fps,
     )
-    return (
-        CompositeVideoClip([bg_clip, fg_clip], size=size)
-        .set_duration(duration)
-        .set_fps(fps)
+    return _set_fps(
+        CompositeVideoClip([bg_clip, fg_clip], size=size).set_duration(duration),
+        fps,
     )

@@ -18,9 +18,7 @@ def _page_scale_type(x: str) -> float:
 
 def _parallax_type(x: str) -> float:
     v = float(x)
-    if not (0.0 <= v <= 1.0):
-        raise argparse.ArgumentTypeError("--bg-parallax must be in [0,1]")
-    return v
+    return max(0.0, min(1.0, v))
 
 
 def _nonneg_int(x: str) -> int:
@@ -28,6 +26,10 @@ def _nonneg_int(x: str) -> int:
     if v < 0:
         raise argparse.ArgumentTypeError("--panel-bleed must be >= 0")
     return v
+
+
+def _clamp_nonneg_int(x: str) -> int:
+    return max(0, int(x))
 
 
 def _zoom_max_type(x: str) -> float:
@@ -72,9 +74,9 @@ def main() -> None:
         help="Tryb poprawy paneli",
     )
     parser.add_argument("--enhance-strength", type=float, default=1.0, help="Siła enhance")
-    parser.add_argument("--shadow", type=float, default=0.2, help="Opacity cienia pod panelem")
-    parser.add_argument("--shadow-blur", type=int, default=12, help="Rozmycie cienia (px)")
-    parser.add_argument("--shadow-offset", type=int, default=3, help="Offset cienia (px)")
+    parser.add_argument("--shadow", type=_parallax_type, default=0.2, help="Opacity cienia pod panelem")
+    parser.add_argument("--shadow-blur", type=_clamp_nonneg_int, default=12, help="Rozmycie cienia (px)")
+    parser.add_argument("--shadow-offset", type=_clamp_nonneg_int, default=3, help="Offset cienia (px)")
     parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
     parser.add_argument("--xfade", type=float, default=0.4, help="Crossfade między stronami (s)")
@@ -188,9 +190,7 @@ def main() -> None:
 
     def _overlay_fit_type(x: str) -> float:
         v = float(x)
-        if not (0.5 <= v <= 0.95):
-            raise argparse.ArgumentTypeError("--overlay-fit must be in [0.50,0.95]")
-        return v
+        return max(0.0, min(1.0, v))
 
     parser.add_argument("--overlay-fit", type=_overlay_fit_type, default=0.75, help="Udział wysokości kadru dla panelu")
     parser.add_argument("--overlay-margin", type=int, default=0, help="Margines wokół panelu")
@@ -201,8 +201,8 @@ def main() -> None:
         help="Underlay w trybie overlay",
     )
     parser.add_argument("--fg-shadow", type=_parallax_type, default=0.25, help="Opacity cienia pod panelem")
-    parser.add_argument("--fg-shadow-blur", type=int, default=18, help="Rozmycie cienia fg")
-    parser.add_argument("--fg-shadow-offset", type=int, default=4, help="Offset cienia fg")
+    parser.add_argument("--fg-shadow-blur", type=_clamp_nonneg_int, default=18, help="Rozmycie cienia fg")
+    parser.add_argument("--fg-shadow-offset", type=_clamp_nonneg_int, default=4, help="Offset cienia fg")
     parser.add_argument("--parallax-bg", type=_parallax_type, default=0.85, help="Paralaksa tła overlay")
     parser.add_argument("--parallax-fg", type=_parallax_type, default=0.0, help="Paralaksa panelu")
     parser.add_argument("--items-from", help="Folder z maskami paneli")
