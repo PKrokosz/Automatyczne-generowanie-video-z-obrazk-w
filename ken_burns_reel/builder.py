@@ -4,6 +4,9 @@ from __future__ import annotations
 import glob
 import math
 import os
+import json
+import logging
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 try:
@@ -158,6 +161,29 @@ def ease_in(t: float) -> float:
 def ease_out(t: float) -> float:
     """Cosine ease-out for t in [0,1]."""
     return math.sin(0.5 * math.pi * t)
+
+
+def _apply_witcher_look(frame: np.ndarray, vignette_strength: float) -> np.ndarray:
+    rng = np.random.default_rng()
+    f = frame.astype(np.float32)
+    M = np.array(
+        [
+            [0.393, 0.769, 0.189],
+            [0.349, 0.686, 0.168],
+            [0.272, 0.534, 0.131],
+        ],
+        dtype=np.float32,
+    )
+    f = np.clip(f @ M.T, 0, 255)
+    f += rng.normal(0.0, 8.0, f.shape[:2])[..., None].astype(np.float32)
+    f = np.clip(f, 0, 255)
+    if vignette_strength > 0:
+        H, W = f.shape[:2]
+        yy, xx = np.mgrid[0:H, 0:W]
+        d = np.sqrt((xx - W / 2) ** 2 + (yy - H / 2) ** 2)
+        d /= np.hypot(W / 2, H / 2) + 1e-6
+        f *= (1 - 1.5 * vignette_strength * d)[..., None]
+    return np.clip(f, 0, 255).astype(np.uint8)
 
 
 def _get_ease_fn(name: str):
@@ -709,6 +735,30 @@ def make_panels_items_sequence(
     return _set_fps(final, fps)
 
 
+def compute_segment_timing(
+    bpm: int | None,
+    beats_per_panel: float,
+    beats_travel: float,
+    readability_ms: int,
+    min_dwell: float,
+    max_dwell: float,
+    settle_min: float,
+    settle_max: float,
+) -> tuple[float, float, float]:
+    dwell_base = max(readability_ms / 1000.0, min_dwell)
+    if bpm:
+        beat = 60.0 / bpm
+        dwell = max(dwell_base, beats_per_panel * beat)
+        dwell = min(dwell, max_dwell)
+        travel = beats_travel * beat
+        travel = max(0.32, min(0.55, travel))
+    else:
+        dwell = dwell_base
+        travel = 0.4
+    settle = max(settle_min, min(settle_max, (settle_min + settle_max) / 2.0))
+    return dwell, travel, settle
+
+
 def make_panels_overlay_sequence(
     page_paths: List[str],
     panels_dir: str,
@@ -738,7 +788,6 @@ def make_panels_overlay_sequence(
     deep_bg_parallax: float = 0.02,
     page_desaturate: float = 0.15,
     page_dim: float = 0.15,
-    mid_vignette: float = 0.15,
     fg_glow: float = 0.10,
     fg_glow_blur: int = 24,
     overlay_edge: str = "feather",
@@ -746,6 +795,21 @@ def make_panels_overlay_sequence(
     min_panel_area_ratio: float = 0.03,
     gutter_thicken: int = 0,
     debug_overlay: bool = False,
+    page_scale_overlay: float = 1.0,
+    bg_vignette: float = 0.15,
+    overlay_pop: float = 1.0,
+    overlay_jitter: float = 0.0,
+    look: str = "none",
+    timing_profile: str = "free",
+    bpm: int | None = None,
+    beats_per_panel: float = 2.0,
+    beats_travel: float = 0.5,
+    readability_ms: int = 900,
+    min_dwell: float = 1.0,
+    max_dwell: float = 1.8,
+    settle_min: float = 0.12,
+    settle_max: float = 0.22,
+    quantize: str = "off",
     limit_items: int = 999,
     trans: str = "smear",
     trans_dur: float = 0.3,
@@ -805,7 +869,97 @@ def make_panels_overlay_sequence(
         fg_shadow += 0.05
     fg_shadow = max(0.0, min(0.5, fg_shadow))
 
+    if timing_profile != "free":
+        dwell, travel, settle = compute_segment_timing(
+            bpm,
+            beats_per_panel,
+            beats_travel,
+            readability_ms,
+            min_dwell,
+            max_dwell,
+            settle_min,
+            settle_max,
+        )
+
+    # prepare per-segment timing and optional quantization
+    @dataclass
+    class SegmentTiming:
+        start: float
+        dwell: float
+        travel: float
+        settle: float
+        snap_delta: float = 0.0
+
+    seg_timings: List[SegmentTiming] = []
+    start_t = 0.0
+    for _ in items:
+        seg_timings.append(SegmentTiming(start_t, dwell, travel, settle))
+        start_t += dwell + travel + settle
+
+    # optional snapping to detected beats before grid quantization
+    if align_beat and beat_times:
+        snapped: List[SegmentTiming] = []
+        for s in seg_timings:
+            start, d, tr, st = s.start, s.dwell, s.travel, s.settle
+            if start == 0.0:
+                snapped.append(SegmentTiming(start, d, tr, st, 0.0))
+                continue
+            nearest = min(beat_times, key=lambda b: abs(b - start))
+            delta = nearest - start
+            if abs(delta) <= 0.08 and d - delta >= max(0.2, readability_ms / 1000.0):
+                start = nearest
+                if delta > 0:
+                    d = d - delta
+                else:
+                    st = min(settle_max, st - delta)
+            snapped.append(SegmentTiming(start, d, tr, st, delta))
+        seg_timings = snapped
+
+    # then optional BPM grid quantization
+    if bpm and quantize != "off":
+        beat = 60.0 / bpm
+        step = beat if quantize == "1/4" else beat / 2.0
+        new_timings: List[SegmentTiming] = []
+        for s in seg_timings:
+            start, d, tr, st = s.start, s.dwell, s.travel, s.settle
+            delta = 0.0
+            if start != 0:
+                q = round(start / step) * step
+                delta = q - start
+                if abs(delta) <= 0.1:
+                    st += delta
+                    st = max(0.0, st)
+                    st = max(settle_min, min(settle_max, st))
+                    start = q
+            new_timings.append(SegmentTiming(start, d, tr, st, delta))
+        seg_timings = new_timings
+        overlay_jitter = 0.0
+    timing_log: List[Dict[str, float]] = []
+    meta = {"timing_profile": timing_profile, "bpm": bpm}
+    timing_log.append(meta)
+    for idx, s in enumerate(seg_timings):
+        row = {
+            "index": idx,
+            "start": round(s.start, 3),
+            "dwell": round(s.dwell, 3),
+            "travel": round(s.travel, 3),
+            "settle": round(s.settle, 3),
+            "snap_delta": round(s.snap_delta, 3),
+        }
+        if bpm:
+            beat_len = 60.0 / bpm
+            row["beat_index"] = round(s.start / beat_len, 3)
+        timing_log.append(row)
+    try:
+        with open("timing_log.jsonl", "w", encoding="utf8") as f:
+            for row in timing_log:
+                f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+
     for i, it in enumerate(items):
+        s = seg_timings[i]
+        start, dwell, travel, settle = s.start, s.dwell, s.travel, s.settle
         page_arr = it["page"]
         panel_arr = it["panel_arr"]
         box = it["box"]
@@ -849,11 +1003,11 @@ def make_panels_overlay_sequence(
                     if page_dim > 0:
                         hsv[:, :, 2] *= 1 - page_dim
                     mid = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
-                if bg_tex == "vignette" and mid_vignette > 0:
+                if bg_tex == "vignette" and bg_vignette > 0 and look != "witcher1":
                     yy, xx = np.mgrid[0:Hout, 0:Wout]
                     dist = np.sqrt((xx - Wout / 2) ** 2 + (yy - Hout / 2) ** 2)
                     dist /= dist.max() + 1e-6
-                    vign = 1 - mid_vignette * dist
+                    vign = 1 - bg_vignette * dist
                     mid = (mid.astype(np.float32) * vign[..., None]).astype(np.uint8)
                 elif bg_tex == "gradient":
                     gx = np.linspace(0.9, 1.0, Wout, dtype=np.float32)[None, :].repeat(Hout, 0)
@@ -862,6 +1016,16 @@ def make_panels_overlay_sequence(
                 frame = mid
             else:
                 frame = _make_underlay(arr, target_size, bg_source)
+
+            if page_scale_overlay < 1.0:
+                fw = int(Wout * page_scale_overlay)
+                fh = int(Hout * page_scale_overlay)
+                scaled = cv2.resize(frame, (fw, fh), interpolation=cv2.INTER_CUBIC)
+                canvas = np.zeros_like(frame)
+                x0 = (Wout - fw) // 2
+                y0 = (Hout - fh) // 2
+                canvas[y0 : y0 + fh, x0 : x0 + fw] = scaled
+                frame = canvas
 
             if deep_bg_mode != "none" and travel > 0:
                 if deep_bg_mode == "gradient":
@@ -875,9 +1039,11 @@ def make_panels_overlay_sequence(
                 dy = int(deep_bg_parallax * parallax_bg * Hout * p)
                 deep = np.roll(np.roll(deep, dx, axis=1), dy, axis=0)
                 frame = cv2.addWeighted(deep, 0.25, frame, 0.75, 0)
+            if look == "witcher1":
+                frame = _apply_witcher_look(frame, bg_vignette)
             return frame
 
-        bg = _set_fps(VideoClip(make_bg, duration=dwell + travel), fps)
+        bg = _set_fps(VideoClip(make_bg, duration=dwell + travel + settle), fps)
         bg_clips.append(bg)
 
         x0, y0, w0, h0 = alpha_bbox(panel_arr)
@@ -940,7 +1106,24 @@ def make_panels_overlay_sequence(
 
             def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                scale = 1.0
+                pop_dur = min(0.35, dwell)
+                if overlay_pop < 1.0 and t < pop_dur:
+                    p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
+                    scale = overlay_pop + (1 - overlay_pop) * p
                 x_pos, y_pos = _pos(t)
+                use_overlay = overlay
+                if scale != 1.0:
+                    ow = max(1, int(round(dst_w * scale)))
+                    oh = max(1, int(round(dst_h * scale)))
+                    use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    x_pos += (dst_w - ow) // 2
+                    y_pos += (dst_h - oh) // 2
+                if overlay_jitter > 0:
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
                 if fg_shadow > 0:
                     sx = x_pos + fg_shadow_offset
                     sy = y_pos + fg_shadow_offset
@@ -949,20 +1132,53 @@ def make_panels_overlay_sequence(
                     )
                 if glow_map is not None:
                     _add_rgb_clipped(canvas[:, :, :3], glow_map, x_pos, y_pos)
-                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, :3]
 
             def make_fg_mask(t, overlay=resized):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                scale = 1.0
+                pop_dur = min(0.35, dwell)
+                if overlay_pop < 1.0 and t < pop_dur:
+                    p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
+                    scale = overlay_pop + (1 - overlay_pop) * p
                 x_pos, y_pos = _pos(t)
-                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                use_overlay = overlay
+                if scale != 1.0:
+                    ow = max(1, int(round(dst_w * scale)))
+                    oh = max(1, int(round(dst_h * scale)))
+                    use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    x_pos += (dst_w - ow) // 2
+                    y_pos += (dst_h - oh) // 2
+                if overlay_jitter > 0:
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
+                _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, 3] / 255.0
 
         else:  # center mode
             ph, pw = panel.shape[:2]
-            scale = min(overlay_fit * Hout / max(1, ph), Wout / max(1, pw))
+            area_ratio = (ph * pw) / (Hpage * Wpage)
+            ofit = overlay_fit
+            if area_ratio < 0.08:
+                ofit = min(ofit, 0.72)
+            elif area_ratio > 0.25:
+                ofit = min(ofit, 0.64)
+            else:
+                ofit = min(ofit, 0.66)
+            scale = min(ofit * Hout / max(1, ph), Wout / max(1, pw))
             nw = int(round(pw * scale))
             nh = int(round(ph * scale))
+            dx_max = abs(cx1 - cx0) * parallax_fg * (Wout / win_w)
+            dy_max = abs(cy1 - cy0) * parallax_fg * (Hout / win_h)
+            max_w = Wout - 2 * (overlay_margin + dx_max)
+            max_h = Hout - 2 * (overlay_margin + dy_max)
+            if nw > max_w or nh > max_h:
+                scale = min(max_w / max(1, pw), max_h / max(1, ph))
+                nw, nh = int(round(pw * scale)), int(round(ph * scale))
+                logging.warning("overlay_fit reduced to avoid clipping")
             nw = min(nw, Wout - 2 * overlay_margin)
             nh = min(nh, Hout - 2 * overlay_margin)
             x_base = (Wout - nw) // 2
@@ -1007,7 +1223,24 @@ def make_panels_overlay_sequence(
 
             def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                scale = 1.0
+                pop_dur = min(0.35, dwell)
+                if overlay_pop < 1.0 and t < pop_dur:
+                    p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
+                    scale = overlay_pop + (1 - overlay_pop) * p
                 x_pos, y_pos = _pos(t)
+                use_overlay = overlay
+                if scale != 1.0:
+                    ow = max(1, int(round(nw * scale)))
+                    oh = max(1, int(round(nh * scale)))
+                    use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    x_pos += (nw - ow) // 2
+                    y_pos += (nh - oh) // 2
+                if overlay_jitter > 0:
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
                 if fg_shadow > 0:
                     sx = x_pos + fg_shadow_offset
                     sy = y_pos + fg_shadow_offset
@@ -1016,17 +1249,34 @@ def make_panels_overlay_sequence(
                     )
                 if glow_map is not None:
                     _add_rgb_clipped(canvas[:, :, :3], glow_map, x_pos, y_pos)
-                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, :3]
 
             def make_fg_mask(t, overlay=resized):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+                scale = 1.0
+                pop_dur = min(0.35, dwell)
+                if overlay_pop < 1.0 and t < pop_dur:
+                    p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
+                    scale = overlay_pop + (1 - overlay_pop) * p
                 x_pos, y_pos = _pos(t)
-                _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
+                use_overlay = overlay
+                if scale != 1.0:
+                    ow = max(1, int(round(nw * scale)))
+                    oh = max(1, int(round(nh * scale)))
+                    use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    x_pos += (nw - ow) // 2
+                    y_pos += (nh - oh) // 2
+                if overlay_jitter > 0:
+                    frame_idx = int(round(t * fps))
+                    rng = np.random.default_rng(frame_idx + 1337)
+                    x_pos += int(round(rng.normal(0, overlay_jitter)))
+                    y_pos += int(round(rng.normal(0, overlay_jitter)))
+                _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, 3] / 255.0
 
-        fg = _set_fps(VideoClip(make_fg_frame, duration=dwell + travel), fps)
-        mask_clip = VideoClip(make_fg_mask, duration=dwell + travel)
+        fg = _set_fps(VideoClip(make_fg_frame, duration=dwell + travel + settle), fps)
+        mask_clip = VideoClip(make_fg_mask, duration=dwell + travel + settle)
         mask_clip.ismask = True
         fg_mask = _set_fps(mask_clip, fps)
         fg = _attach_mask(fg, fg_mask)
@@ -1046,33 +1296,17 @@ def make_panels_overlay_sequence(
                 cv2.line(comp_dbg, (0, gy), (Wout - 1, gy), (0, 255, 0), 1)
             cv2.imwrite(f"debug_overlay_{i:04d}.png", cv2.cvtColor(comp_dbg, cv2.COLOR_RGB2BGR))
 
-    # prepare per-segment timing
     n = len(fg_clips)
-    dwell_list = [dwell] * n
-    settle_list = [0.0] * n
-    starts = [0.0]
-    for i in range(1, n):
-        start = starts[i - 1] + dwell_list[i - 1] + settle_list[i - 1] + trans_dur
-        if align_beat and beat_times:
-            nearest = min(beat_times, key=lambda b: abs(b - start))
-            delta = nearest - start
-            seg_len = dwell_list[i]
-            if abs(delta) <= 0.08 and seg_len >= 0.2 and seg_len - delta >= 0.2:
-                start = nearest
-                if delta > 0:  # shift later, shorten dwell
-                    dwell_list[i] = seg_len - delta
-                elif delta < 0:  # shift earlier, extend settle
-                    settle_list[i] = min(0.2, settle_list[i] - delta)
-        starts.append(start)
-
     seq: List[VideoClip] = []
     for i in range(n):
+        s = seg_timings[i]
+        dwell_i, travel_i, settle_i = s.dwell, s.travel, s.settle
         comp = _with_duration(
             CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size),
-            dwell + travel,
+            dwell_i + travel_i + settle_i,
         )
         comp = _set_fps(comp, fps)
-        seg_dur = dwell_list[i] + settle_list[i]
+        seg_dur = dwell_i + settle_i
         seq.append(comp.subclip(0, seg_dur))
         if i < n - 1:
             vec = (

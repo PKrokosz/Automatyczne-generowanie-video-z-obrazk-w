@@ -45,10 +45,12 @@ def slide_transition(prev_clip, next_clip, duration: float, size: Tuple[int, int
     head = next_clip.subclip(0, duration)
 
     def move_left(t):
-        return (-t / duration * W, 0)
+        d = max(1e-6, duration)
+        return (-t / d * W, 0)
 
     def move_right(t):
-        return ((1 - t / duration) * W, 0)
+        d = max(1e-6, duration)
+        return ((1 - t / d) * W, 0)
 
     return _set_fps(
         CompositeVideoClip(
@@ -120,7 +122,7 @@ def whip_pan_transition(
     ease_fn = _get_ease_fn(ease)
 
     def make_frame(t):
-        p = ease_fn(t / duration)
+        p = ease_fn(t / max(1e-6, duration))
         frame_prev = tail.get_frame(t).astype(np.uint8)
         frame_next = head.get_frame(t).astype(np.uint8)
         shift_prev = (-dx * p, -dy * p)
