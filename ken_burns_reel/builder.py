@@ -20,6 +20,99 @@ from .ocr import extract_caption
 from .utils import overlay_caption
 from .config import IMAGE_EXTS, AUDIO_EXTS
 
+# Panel camera imports
+import numpy as np
+from .panels import detect_panels, order_panels_lr_tb
+import cv2
+
+def _fit_window_to_box(img_w, img_h, box, target_size):
+    """Return (cx, cy, win_w, win_h) framing window to fit a panel."""
+    x, y, w, h = box
+    tw, th = target_size
+    scale_w = w / tw
+    scale_h = h / th
+    scale = max(scale_w, scale_h)
+    win_w = int(tw * scale)
+    win_h = int(th * scale)
+    cx = x + w // 2
+    cy = y + h // 2
+    left = max(0, min(cx - win_w // 2, img_w - win_w))
+    top = max(0, min(cy - win_h // 2, img_h - win_h))
+    return (left + win_w // 2, top + win_h // 2, win_w, win_h)
+
+
+def _interp(a, b, t):
+    return a + (b - a) * t
+
+
+def make_panels_cam_clip(
+    image_path: str,
+    target_size=(1080, 1920),
+    fps: int = 30,
+    dwell: float = 1.0,
+    travel: float = 0.6,
+):
+    """Animate camera between comic panels detected in the image."""
+    img = Image.open(image_path)
+    W, H = img.size
+    boxes = order_panels_lr_tb(detect_panels(img))
+    if not boxes:
+        return ImageClip(np.array(img)).resize(newsize=target_size).set_duration(3)
+
+    base = ImageClip(np.array(img)).set_duration(1).set_fps(fps)
+    segs = []
+    for i in range(len(boxes)):
+        segs.append(("dwell", i))
+        if i < len(boxes) - 1:
+            segs.append(("travel", (i, i + 1)))
+    total = len(boxes) * dwell + (len(boxes) - 1) * travel
+
+    def make_frame(t):
+        acc = 0.0
+        for kind, payload in segs:
+            dur = dwell if kind == "dwell" else travel
+            if t <= acc + dur + 1e-6:
+                if kind == "dwell":
+                    idx = payload
+                    cx, cy, ww, wh = _fit_window_to_box(W, H, boxes[idx], target_size)
+                    s = 1.02 - 0.02 * (t - acc) / max(1e-6, dur)
+                    ww2, wh2 = int(ww / s), int(wh / s)
+                    left = int(cx - ww2 // 2)
+                    top = int(cy - wh2 // 2)
+                    frame = base.get_frame(0)
+                    crop = frame[top : top + wh2, left : left + ww2]
+                    return cv2.resize(crop, target_size, interpolation=cv2.INTER_CUBIC)[
+                        :, :, ::-1
+                    ]
+                else:
+                    i0, i1 = payload
+                    c0x, c0y, w0, h0 = _fit_window_to_box(
+                        W, H, boxes[i0], target_size
+                    )
+                    c1x, c1y, w1, h1 = _fit_window_to_box(
+                        W, H, boxes[i1], target_size
+                    )
+                    tau = (t - acc) / max(1e-6, dur)
+                    cx = int(_interp(c0x, c1x, tau))
+                    cy = int(_interp(c0y, c1y, tau))
+                    ww = int(_interp(w0, w1, tau))
+                    wh = int(_interp(h0, h1, tau))
+                    frame = base.get_frame(0)
+                    left = int(cx - ww // 2)
+                    top = int(cy - wh // 2)
+                    left = max(0, min(left, W - ww))
+                    top = max(0, min(top, H - wh))
+                    crop = frame[top : top + wh, left : left + ww]
+                    return cv2.resize(crop, target_size, interpolation=cv2.INTER_CUBIC)[
+                        :, :, ::-1
+                    ]
+            acc += dur
+        return base.get_frame(0)
+
+    anim = base.set_duration(total).fl_image(lambda _: None)
+    anim = anim.set_make_frame(make_frame)
+    return anim
+
 
 ScreenSize = Tuple[int, int]
 
