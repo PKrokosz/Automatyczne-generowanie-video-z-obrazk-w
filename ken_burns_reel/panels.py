@@ -37,10 +37,37 @@ def alpha_bbox(arr: np.ndarray) -> Box:
     return (int(x0), int(y0), int(x1 - x0), int(y1 - y0))
 
 
+def fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Fill holes inside a binary mask using flood fill from the border."""
+    h, w = mask.shape[:2]
+    flood = np.zeros((h + 2, w + 2), np.uint8)
+    filled = mask.copy()
+    cv2.floodFill(filled, flood, (0, 0), 255)
+    inv = cv2.bitwise_not(filled)
+    return cv2.bitwise_or(mask, inv)
+
+
+def roughen_alpha(mask: np.ndarray, amount: float, scale: int) -> np.ndarray:
+    """Add small irregularities to the mask edge."""
+    if amount <= 0:
+        return mask
+    h, w = mask.shape[:2]
+    edge = cv2.Canny(mask, 50, 150)
+    edge = cv2.dilate(edge, None, iterations=1)
+    noise = (np.random.rand(h, w).astype(np.float32) - 0.5)
+    noise = cv2.GaussianBlur(noise, (0, 0), max(1, scale))
+    perturb = noise * (amount * 255.0) * (edge / 255.0)
+    out = mask.astype(np.float32) + perturb
+    out = cv2.GaussianBlur(out, (0, 0), 0.66 + amount * 1.5)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 def detect_panels(
     img: Image.Image,
     min_area_ratio: float = 0.03,
     gutter_thicken: int = 0,
+    min_ar: float = 0.4,
+    max_ar: float = 2.8,
 ) -> List[Box]:
     rgb = np.array(img.convert("RGB"))
     lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
@@ -86,13 +113,15 @@ def detect_panels(
     H, W = panels_mask.shape
     min_area = int(min_area_ratio * W * H)
     boxes: List[Box] = []
+    total_comps = num - 1
     for i in range(1, num):
         x, y, w, h, area = stats[i]
         if area < min_area:
             continue
         ar = w / max(1, h)
-        if 0.3 <= ar <= 4.0:
-            boxes.append((int(x), int(y), int(w), int(h)))
+        if total_comps > 1 and not (min_ar <= ar <= max_ar):
+            continue
+        boxes.append((int(x), int(y), int(w), int(h)))
     return _suppress_nested(boxes)
 
 
@@ -178,8 +207,15 @@ def export_panels(
     bleed: int = 24,
     tight_border: int = 1,
     feather: int = 1,
+    roughen: float = 0.15,
+    roughen_scale: int = 24,
     gutter_thicken: int = 0,
     min_area_ratio: float = 0.03,
+    mask_fill_holes: int = 1,
+    mask_close: int = 5,
+    mask_rect_fallback: float = 0.12,
+    panel_min_ar: float = 0.4,
+    panel_max_ar: float = 2.8,
 ) -> List[str]:
     """Detect panels in *image_path* and export them to *out_dir*.
 
@@ -199,6 +235,17 @@ def export_panels(
         Number of pixels to erode from the panel mask edge when ``mode="mask"``.
     feather:
         Radius for Gaussian blur applied to the alpha mask when ``mode="mask"``.
+    roughen / roughen_scale:
+        Amount and scale of edge noise applied to the mask when ``mode="mask"``.
+    mask_fill_holes:
+        When non-zero, fill holes in the panel mask using flood fill.
+    mask_close:
+        Kernel size for ``cv2.MORPH_CLOSE`` applied to the panel mask.
+    mask_rect_fallback:
+        If the ratio of holes in the mask after feathering exceeds this value,
+        fall back to a rectangular crop with solid alpha.
+    panel_min_ar / panel_max_ar:
+        Aspect-ratio bounds for detected components (ignored if only one component).
     """
 
     os.makedirs(out_dir, exist_ok=True)
@@ -221,13 +268,15 @@ def export_panels(
 
     comps: List[Tuple[Box, int]] = []
     min_area = int(min_area_ratio * W * H)
+    total_comps = num - 1
     for i in range(1, num):
         x, y, w, h, area = stats[i]
         if area < min_area:
             continue
         ar = w / max(1, h)
-        if 0.3 <= ar <= 4.0:
-            comps.append(((int(x), int(y), int(w), int(h)), i))
+        if total_comps > 1 and not (panel_min_ar <= ar <= panel_max_ar):
+            continue
+        comps.append(((int(x), int(y), int(w), int(h)), i))
 
     if not comps:
         return []
@@ -249,16 +298,29 @@ def export_panels(
             lbl = label_map[(x, y, w, h)]
             m = (labels == lbl).astype(np.uint8) * 255
             mask_crop = m[y0:y1, x0:x1]
+            if mask_fill_holes:
+                mask_crop = fill_holes(mask_crop)
+            if mask_close > 0:
+                k = cv2.getStructuringElement(cv2.MORPH_RECT, (mask_close, mask_close))
+                mask_crop = cv2.morphologyEx(mask_crop, cv2.MORPH_CLOSE, k, iterations=1)
             if tight_border > 0:
                 kernel = np.ones((tight_border, tight_border), np.uint8)
                 mask_crop = cv2.erode(mask_crop, kernel, iterations=1)
             if feather > 0:
                 mask_crop = gaussian_blur(mask_crop, sigma=feather)
+            if roughen > 0:
+                mask_crop = roughen_alpha(mask_crop, roughen, roughen_scale)
             alpha = mask_crop
+            bin_alpha = (alpha > 127).astype(np.uint8)
+            holes_ratio = 1.0 - float(bin_alpha.sum()) / bin_alpha.size
+            if holes_ratio > mask_rect_fallback:
+                alpha = np.full_like(alpha, 255)
             rgba = np.dstack([crop, alpha])
             im_out = Image.fromarray(rgba, mode="RGBA")
         else:
-            im_out = Image.fromarray(crop, mode="RGB")
+            alpha = np.full((crop.shape[0], crop.shape[1], 1), 255, dtype=np.uint8)
+            rgba = np.concatenate([crop, alpha], axis=2)
+            im_out = Image.fromarray(rgba, mode="RGBA")
         fname = f"panel_{i:04d}.png"
         out_path = os.path.join(out_dir, fname)
         im_out.save(out_path)

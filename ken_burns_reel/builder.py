@@ -55,8 +55,21 @@ import cv2
 from .utils import gaussian_blur, _set_fps
 
 
-def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
-    """Return an audio clip resized to *duration* using *mode* strategy."""
+def _fit_audio_clip(path: str, duration: float, mode: str, gain_db: float = 0.0) -> AudioFileClip:
+    """Return an audio clip resized to *duration* using *mode* strategy.
+
+    Parameters
+    ----------
+    path: str
+        Audio file path.
+    duration: float
+        Desired duration in seconds.
+    mode: str
+        "trim", "silence", or "loop".
+    gain_db: float
+        Optional gain in decibels applied to the resulting clip.
+    """
+    duration = max(0.0, duration)
     audio = AudioFileClip(path)
 
     def _make_silence(seconds: float) -> AudioClip:
@@ -101,8 +114,10 @@ def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
         raise ValueError(f"unknown audio-fit mode: {mode}")
 
     audio = audio.set_duration(duration)
-    audio = audio_fadein(audio, 0.15)
-    audio = audio_fadeout(audio, 0.15)
+    if gain_db:
+        audio = audio.volumex(10 ** (gain_db / 20.0))
+    audio = audio_fadein(audio, 0.12)
+    audio = audio_fadeout(audio, 0.12)
     return audio
 
 def _fit_window_to_box(img_w, img_h, box, target_size, bleed: int = 0):
@@ -152,6 +167,13 @@ def _get_ease_fn(name: str):
         "out": ease_out,
         "inout": ease_in_out,
     }.get(name, ease_in_out)
+
+
+def _with_duration(clip: VideoClip, duration: float) -> VideoClip:
+    """Compat helper for moviepy 1.x/2.x set_duration API."""
+    if hasattr(clip, "set_duration"):
+        return clip.set_duration(duration)
+    return clip.with_duration(duration)
 
 
 def apply_clahe_rgb(arr):
@@ -240,6 +262,29 @@ def _darken_region_with_alpha_clipped(
     a = alpha_map[src_y0:src_y1, src_x0:src_x1].astype(np.float32) / 255.0
     mult = (1.0 - strength * a)[..., None]
     canvas_rgb[dst_y0:dst_y1, dst_x0:dst_x1, :] = np.clip(region * mult, 0, 255).astype(
+        np.uint8
+    )
+
+
+def _add_rgb_clipped(canvas_rgb: np.ndarray, rgb: np.ndarray, x: int, y: int) -> None:
+    """Add *rgb* onto *canvas_rgb* with clipping."""
+    H, W = canvas_rgb.shape[:2]
+    h, w = rgb.shape[:2]
+    sx, sy = x, y
+    ex, ey = x + w, y + h
+    dst_x0 = max(0, sx)
+    dst_y0 = max(0, sy)
+    dst_x1 = min(W, ex)
+    dst_y1 = min(H, ey)
+    src_x0 = max(0, -sx)
+    src_y0 = max(0, -sy)
+    src_x1 = src_x0 + (dst_x1 - dst_x0)
+    src_y1 = src_y0 + (dst_y1 - dst_y0)
+    if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+        return
+    dst = canvas_rgb[dst_y0:dst_y1, dst_x0:dst_x1, :].astype(np.float32)
+    src = rgb[src_y0:src_y1, src_x0:src_x1]
+    canvas_rgb[dst_y0:dst_y1, dst_x0:dst_x1, :] = np.clip(dst + src, 0, 255).astype(
         np.uint8
     )
 
@@ -677,16 +722,27 @@ def make_panels_overlay_sequence(
     beat_times=None,
     overlay_fit: float = 0.7,
     overlay_margin: int = 12,
-    overlay_mode: str = "center",
-    overlay_scale: float = 1.15,
+    overlay_mode: str = "anchored",
+    overlay_scale: float = 1.6,
     bg_source: str = "page",
+    bg_blur: float = 8.0,
+    bg_tex: str = "vignette",
     bg_tone_strength: float = 0.7,
-    parallax_bg: float = 0.85,
+    parallax_bg: float = 0.05,
     parallax_fg: float = 0.0,
     fg_shadow: float = 0.25,
     fg_shadow_blur: int = 18,
     fg_shadow_offset: int = 4,
     fg_shadow_mode: str = "soft",
+    deep_bg_mode: str = "gradient",
+    deep_bg_parallax: float = 0.02,
+    page_desaturate: float = 0.15,
+    page_dim: float = 0.15,
+    mid_vignette: float = 0.15,
+    fg_glow: float = 0.10,
+    fg_glow_blur: int = 24,
+    overlay_edge: str = "feather",
+    overlay_edge_strength: float = 0.6,
     min_panel_area_ratio: float = 0.03,
     gutter_thicken: int = 0,
     debug_overlay: bool = False,
@@ -754,17 +810,16 @@ def make_panels_overlay_sequence(
         panel_arr = it["panel_arr"]
         box = it["box"]
         Hpage, Wpage = page_arr.shape[:2]
-        cx0, cy0, w0, h0 = it["frame"]
-        if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
-            cx1, cy1, w1, h1 = items[i + 1]["frame"]
-        else:
-            cx1, cy1, w1, h1 = cx0, cy0, w0, h0
-        win_w = max(w0, w1)
-        win_h = max(h0, h1)
+        cx0, cy0, win_w, win_h = it["frame"]
         left0 = int(max(0, min(cx0 - win_w // 2, Wpage - win_w)))
         top0 = int(max(0, min(cy0 - win_h // 2, Hpage - win_h)))
-        left1 = int(max(0, min(cx1 - win_w // 2, Wpage - win_w)))
-        top1 = int(max(0, min(cy1 - win_h // 2, Hpage - win_h)))
+        if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
+            dx = items[i + 1]["center"][0] - it["center"][0]
+            dy = items[i + 1]["center"][1] - it["center"][1]
+            left1 = int(max(0, min(left0 + int(dx), Wpage - win_w)))
+            top1 = int(max(0, min(top0 + int(dy), Hpage - win_h)))
+        else:
+            left1, top1 = left0, top0
 
         def make_bg(t, arr=page_arr, l0=left0, t0=top0, l1=left1, t1=top1):
             if bg_source == "page":
@@ -779,27 +834,37 @@ def make_panels_overlay_sequence(
                 tp = int(max(0, min(tp, Hpage - win_h)))
                 crop = arr[tp : tp + win_h, l : l + win_w]
                 frame_raw = cv2.resize(crop, (Wout, Hout), interpolation=cv2.INTER_CUBIC)
-                if bg_tone_strength > 0:
-                    hsv = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2HSV).astype(np.float32)
-                    hsv[:, :, 1] *= 0.8
-                    hsv[:, :, 2] *= 0.85
-                    toned = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+                if bg_blur > 0:
+                    frame_raw = cv2.GaussianBlur(frame_raw, (0, 0), bg_blur)
+                mid = frame_raw
+                if page_desaturate > 0 or page_dim > 0:
+                    hsv = cv2.cvtColor(mid, cv2.COLOR_RGB2HSV).astype(np.float32)
+                    if page_desaturate > 0:
+                        hsv[:, :, 1] *= 1 - page_desaturate
+                    if page_dim > 0:
+                        hsv[:, :, 2] *= 1 - page_dim
+                    mid = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+                if mid_vignette > 0:
                     yy, xx = np.mgrid[0:Hout, 0:Wout]
                     dist = np.sqrt((xx - Wout / 2) ** 2 + (yy - Hout / 2) ** 2)
                     dist /= dist.max() + 1e-6
-                    vign = 1 - 0.15 * dist
-                    toned = (toned.astype(np.float32) * vign[..., None]).astype(np.uint8)
-                    frame = cv2.addWeighted(
-                        frame_raw.astype(np.float32),
-                        1 - bg_tone_strength,
-                        toned.astype(np.float32),
-                        bg_tone_strength,
-                        0,
-                    ).astype(np.uint8)
-                else:
-                    frame = frame_raw
+                    vign = 1 - mid_vignette * dist
+                    mid = (mid.astype(np.float32) * vign[..., None]).astype(np.uint8)
+                frame = mid
             else:
                 frame = _make_underlay(arr, target_size, bg_source)
+
+            if deep_bg_mode != "none":
+                if deep_bg_mode == "gradient":
+                    base = np.linspace(0, 255, Wout, dtype=np.uint8)[None, :].repeat(Hout, 0)
+                    deep = np.dstack([base, base, base])
+                else:
+                    rng = np.random.default_rng(0)
+                    deep = rng.integers(0, 256, (Hout, Wout, 3), dtype=np.uint8)
+                dx = int(deep_bg_parallax * Wout * t)
+                dy = int(deep_bg_parallax * Hout * t)
+                deep = np.roll(np.roll(deep, dx, axis=1), dy, axis=0)
+                frame = cv2.addWeighted(deep, 0.5, frame, 0.5, 0)
             return frame
 
         bg = _set_fps(VideoClip(make_bg, duration=dwell + travel), fps)
@@ -824,6 +889,20 @@ def make_panels_overlay_sequence(
             dst_w = int(round(w * S * overlay_scale))
             dst_h = int(round(h * S * overlay_scale))
             resized = cv2.resize(panel, (dst_w, dst_h), interpolation=cv2.INTER_CUBIC)
+            alpha_panel = resized[:, :, 3]
+            if overlay_edge == "feather":
+                sigma = max(1, int(overlay_edge_strength * 10))
+                alpha_panel = gaussian_blur(alpha_panel, sigma=sigma)
+            elif overlay_edge == "torn":
+                noise = np.random.rand(*alpha_panel.shape).astype(np.float32)
+                noise = cv2.GaussianBlur(noise, (0, 0), 5)
+                thr = 0.5 + overlay_edge_strength * 0.25
+                alpha_panel = (alpha_panel.astype(np.float32) * (noise > thr)).astype(np.uint8)
+            glow_rgb = None
+            if fg_glow > 0:
+                glow = cv2.GaussianBlur(alpha_panel, (0, 0), fg_glow_blur)
+                glow_rgb = np.dstack([glow, glow, glow]).astype(np.float32) * fg_glow
+            resized = np.dstack([resized[:, :, :3], alpha_panel])
             mask_alpha = resized[:, :, 3]
             shadow = (
                 cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
@@ -849,7 +928,7 @@ def make_panels_overlay_sequence(
                 y_pos = int(round(dst_cy - dst_h / 2))
                 return x_pos, y_pos
 
-            def make_fg_frame(t, overlay=resized, shadow_map=shadow):
+            def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
                 x_pos, y_pos = _pos(t)
                 if fg_shadow > 0:
@@ -858,6 +937,8 @@ def make_panels_overlay_sequence(
                     _darken_region_with_alpha_clipped(
                         canvas[:, :, :3], shadow_map, sx, sy, float(fg_shadow)
                     )
+                if glow_map is not None:
+                    _add_rgb_clipped(canvas[:, :, :3], glow_map, x_pos, y_pos)
                 _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
                 return canvas[:, :, :3]
 
@@ -879,6 +960,20 @@ def make_panels_overlay_sequence(
             x_base = max(overlay_margin, min(x_base, Wout - overlay_margin - nw))
             y_base = max(overlay_margin, min(y_base, Hout - overlay_margin - nh))
             resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
+            alpha_panel = resized[:, :, 3]
+            if overlay_edge == "feather":
+                sigma = max(1, int(overlay_edge_strength * 10))
+                alpha_panel = gaussian_blur(alpha_panel, sigma=sigma)
+            elif overlay_edge == "torn":
+                noise = np.random.rand(*alpha_panel.shape).astype(np.float32)
+                noise = cv2.GaussianBlur(noise, (0, 0), 5)
+                thr = 0.5 + overlay_edge_strength * 0.25
+                alpha_panel = (alpha_panel.astype(np.float32) * (noise > thr)).astype(np.uint8)
+            glow_rgb = None
+            if fg_glow > 0:
+                glow = cv2.GaussianBlur(alpha_panel, (0, 0), fg_glow_blur)
+                glow_rgb = np.dstack([glow, glow, glow]).astype(np.float32) * fg_glow
+            resized = np.dstack([resized[:, :, :3], alpha_panel])
             mask_alpha = resized[:, :, 3]
             if fg_shadow_blur > 0:
                 shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
@@ -900,7 +995,7 @@ def make_panels_overlay_sequence(
                 y_pos = max(0, min(y_pos, Hout - nh))
                 return x_pos, y_pos
 
-            def make_fg_frame(t, overlay=resized, shadow_map=shadow):
+            def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
                 x_pos, y_pos = _pos(t)
                 if fg_shadow > 0:
@@ -909,6 +1004,8 @@ def make_panels_overlay_sequence(
                     _darken_region_with_alpha_clipped(
                         canvas[:, :, :3], shadow_map, sx, sy, float(fg_shadow)
                     )
+                if glow_map is not None:
+                    _add_rgb_clipped(canvas[:, :, :3], glow_map, x_pos, y_pos)
                 _paste_rgba_clipped(canvas, overlay, x_pos, y_pos)
                 return canvas[:, :, :3]
 
@@ -919,9 +1016,9 @@ def make_panels_overlay_sequence(
                 return canvas[:, :, 3] / 255.0
 
         fg = _set_fps(VideoClip(make_fg_frame, duration=dwell + travel), fps)
-        fg_mask = _set_fps(
-            VideoClip(make_fg_mask, duration=dwell + travel, ismask=True), fps
-        )
+        mask_clip = VideoClip(make_fg_mask, duration=dwell + travel)
+        mask_clip.ismask = True
+        fg_mask = _set_fps(mask_clip, fps)
         fg = _attach_mask(fg, fg_mask)
         fg_clips.append(fg)
 
@@ -960,11 +1057,11 @@ def make_panels_overlay_sequence(
 
     seq: List[VideoClip] = []
     for i in range(n):
-        comp = _set_fps(
-            CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size)
-            .set_duration(dwell + travel),
-            fps,
+        comp = _with_duration(
+            CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size),
+            dwell + travel,
         )
+        comp = _set_fps(comp, fps)
         seg_dur = dwell_list[i] + settle_list[i]
         seq.append(comp.subclip(0, seg_dur))
         if i < n - 1:
@@ -990,7 +1087,7 @@ def make_panels_overlay_sequence(
                 bg_t = whip_pan_transition(
                     tail_bg, bg_clips[i + 1], trans_dur, target_size, vec, fps=fps
                 )
-                fg_t = _set_fps(
+                fg_t = _with_duration(
                     CompositeVideoClip(
                         [
                             tail_fg.subclip(seg_dur, seg_dur + trans_dur)
@@ -1000,13 +1097,15 @@ def make_panels_overlay_sequence(
                             .crossfadein(trans_dur),
                         ],
                         size=target_size,
-                    ).set_duration(trans_dur),
-                    fps,
+                    ),
+                    trans_dur,
                 )
-                tclip = _set_fps(
-                    CompositeVideoClip([bg_t, fg_t], size=target_size).set_duration(trans_dur),
-                    fps,
+                fg_t = _set_fps(fg_t, fps)
+                tclip = _with_duration(
+                    CompositeVideoClip([bg_t, fg_t], size=target_size),
+                    trans_dur,
                 )
+                tclip = _set_fps(tclip, fps)
             else:
                 prev_comp = CompositeVideoClip(
                     [bg_clips[i], fg_clips[i]], size=target_size
@@ -1021,13 +1120,14 @@ def make_panels_overlay_sequence(
                 else:
                     tail = prev_comp.subclip(seg_dur, seg_dur + trans_dur)
                     head = next_comp.subclip(0, trans_dur)
-                    tclip = _set_fps(
+                    tclip = _with_duration(
                         CompositeVideoClip(
                             [tail.crossfadeout(trans_dur), head.crossfadein(trans_dur)],
                             size=target_size,
-                        ).set_duration(trans_dur),
-                        fps,
+                        ),
+                        trans_dur,
                     )
+                    tclip = _set_fps(tclip, fps)
             seq.append(tclip)
 
     final = concatenate_videoclips(seq, method="compose")

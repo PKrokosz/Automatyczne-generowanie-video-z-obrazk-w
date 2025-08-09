@@ -81,6 +81,8 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
                 feather=2,
                 gutter_thicken=args.gutter_thicken,
                 min_area_ratio=args.min_panel_area_ratio,
+                roughen=args.roughen,
+                roughen_scale=args.roughen_scale,
             )
 
         beat_times = None
@@ -93,11 +95,12 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
                     if os.path.splitext(f)[1].lower() in audio_exts:
                         candidates.append(os.path.join(base, f))
         candidates.sort(key=lambda s: os.path.basename(s).lower())
-        if candidates:
+        audio_path = args.audio
+        if not audio_path and candidates:
             audio_path = candidates[0]
-            if args.align_beat:
-                beat_times = extract_beats(audio_path)
-        elif args.align_beat:
+        if audio_path and args.align_beat:
+            beat_times = extract_beats(audio_path)
+        elif args.align_beat and not audio_path:
             print("⚠️ Nie znaleziono pliku audio – wideo bez wyrównania do beatów.")
             args.align_beat = False
 
@@ -111,12 +114,19 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             travel_ease="inout",
             align_beat=args.align_beat,
             beat_times=beat_times,
-            overlay_fit=0.75,
+            overlay_fit=args.overlay_fit,
             overlay_mode=args.overlay_mode,
             overlay_scale=args.overlay_scale,
             bg_source="page",
-            parallax_bg=0.85,
-            parallax_fg=0.08,
+            bg_blur=args.bg_blur,
+            bg_tex=args.bg_tex,
+            parallax_bg=args.parallax_bg,
+            parallax_fg=args.parallax_fg,
+            fg_shadow=args.fg_shadow,
+            fg_shadow_blur=args.fg_shadow_blur,
+            fg_shadow_offset=args.fg_shadow_offset,
+            fg_glow=args.fg_glow,
+            fg_glow_blur=args.fg_glow_blur,
             min_panel_area_ratio=args.min_panel_area_ratio,
             gutter_thicken=args.gutter_thicken,
             debug_overlay=args.debug_overlay,
@@ -127,7 +137,7 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
         )
 
         if audio_path:
-            audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit)
+            audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit, gain_db=args.audio_gain)
             clip = clip.set_audio(audio)
 
         out_path = os.path.join(args.folder, "final_video.mp4")
@@ -168,6 +178,18 @@ def main() -> None:
     parser.add_argument("--limit-items", type=int, default=999, help="Limit liczby paneli w overlay")
     parser.add_argument("--tight-border", type=int, default=1, help="Erozja konturu w eksporcie mask (px)")
     parser.add_argument("--feather", type=int, default=1, help="Feather alpha w eksporcie mask (px)")
+    parser.add_argument(
+        "--roughen",
+        type=float,
+        default=0.15,
+        help="Nieregularność krawędzi maski (0..1)",
+    )
+    parser.add_argument(
+        "--roughen-scale",
+        type=int,
+        default=24,
+        help="Skala szumu dla roughen",
+    )
     parser.add_argument(
         "--enhance",
         choices=["none", "comic"],
@@ -214,6 +236,13 @@ def main() -> None:
         default="trim",
         help="Jak dopasować audio do długości wideo",
     )
+    parser.add_argument("--audio", help="Ścieżka do pliku audio")
+    parser.add_argument(
+        "--audio-gain",
+        type=float,
+        default=0.0,
+        help="Wzmocnienie ścieżki audio (dB)",
+    )
     parser.add_argument(
         "--dwell-mode",
         choices=["first", "each"],
@@ -226,6 +255,13 @@ def main() -> None:
         default="blur",
         help="Underlay pod stroną",
     )
+    parser.add_argument("--bg-blur", type=float, default=8.0, help="Rozmycie tła")
+    parser.add_argument(
+        "--bg-tex",
+        choices=["vignette", "gradient", "none"],
+        default="vignette",
+        help="Tekstura tła",
+    )
     parser.add_argument(
         "--page-scale",
         type=_page_scale_type,
@@ -235,7 +271,7 @@ def main() -> None:
     parser.add_argument(
         "--bg-parallax",
         type=_parallax_type,
-        default=0.85,
+        default=None,
         help="Siła paralaksy tła podczas travelu",
     )
     parser.add_argument(
@@ -293,8 +329,8 @@ def main() -> None:
         v = float(x)
         return max(0.0, min(1.0, v))
 
-    parser.add_argument("--overlay-fit", type=_overlay_fit_type, default=0.75, help="Udział wysokości kadru dla panelu")
-    parser.add_argument("--overlay-margin", type=int, default=0, help="Margines wokół panelu")
+    parser.add_argument("--overlay-fit", type=_overlay_fit_type, default=None, help="Udział wysokości kadru dla panelu")
+    parser.add_argument("--overlay-margin", type=int, default=None, help="Margines wokół panelu")
     parser.add_argument(
         "--overlay-mode",
         choices=["anchored", "center"],
@@ -322,19 +358,41 @@ def main() -> None:
     parser.add_argument(
         "--fg-shadow",
         type=_parallax_type,
-        default=0.25,
+        default=None,
         help="Opacity cienia pod panelem (0..1, 0 = brak cienia)",
     )
-    parser.add_argument("--fg-shadow-blur", type=_clamp_nonneg_int, default=18, help="Rozmycie cienia fg")
-    parser.add_argument("--fg-shadow-offset", type=_clamp_nonneg_int, default=4, help="Offset cienia fg")
+    parser.add_argument(
+        "--fg-shadow-blur",
+        type=_clamp_nonneg_int,
+        default=None,
+        help="Rozmycie cienia fg",
+    )
+    parser.add_argument(
+        "--fg-shadow-offset",
+        type=_clamp_nonneg_int,
+        default=None,
+        help="Offset cienia fg",
+    )
+    parser.add_argument(
+        "--fg-glow",
+        type=_parallax_type,
+        default=None,
+        help="Siła poświaty panelu",
+    )
+    parser.add_argument(
+        "--fg-glow-blur",
+        type=_clamp_nonneg_int,
+        default=None,
+        help="Rozmycie poświaty",
+    )
     parser.add_argument(
         "--fg-shadow-mode",
         choices=["soft", "hard"],
         default="soft",
         help="Tryb cienia foreground",
     )
-    parser.add_argument("--parallax-bg", type=_parallax_type, default=0.85, help="Paralaksa tła overlay")
-    parser.add_argument("--parallax-fg", type=_parallax_fg_type, default=0.0, help="Paralaksa panelu")
+    parser.add_argument("--parallax-bg", type=_parallax_type, default=None, help="Paralaksa tła overlay")
+    parser.add_argument("--parallax-fg", type=_parallax_fg_type, default=None, help="Paralaksa panelu")
     parser.add_argument(
         "--gutter-thicken",
         type=_clamp_nonneg_int,
@@ -357,6 +415,29 @@ def main() -> None:
 
     if args.mode is None:
         args.mode = "panels-overlay" if args.oneclick else "classic"
+
+    if args.bg_parallax is None and getattr(args, "parallax_bg", None) is not None:
+        args.bg_parallax = args.parallax_bg
+    if args.bg_parallax is None:
+        args.bg_parallax = 0.05 if args.mode == "panels-overlay" else 0.85
+    if args.parallax_bg is None:
+        args.parallax_bg = args.bg_parallax
+    if args.parallax_fg is None:
+        args.parallax_fg = 0.0
+    if args.overlay_fit is None:
+        args.overlay_fit = 0.72 if args.mode == "panels-overlay" else 0.75
+    if args.overlay_margin is None:
+        args.overlay_margin = 24 if args.mode == "panels-overlay" else 0
+    if args.fg_shadow is None:
+        args.fg_shadow = 0.22 if args.mode == "panels-overlay" else 0.25
+    if args.fg_shadow_blur is None:
+        args.fg_shadow_blur = 14 if args.mode == "panels-overlay" else 18
+    if args.fg_shadow_offset is None:
+        args.fg_shadow_offset = 4
+    if args.fg_glow is None:
+        args.fg_glow = 0.10 if args.mode == "panels-overlay" else 0.0
+    if args.fg_glow_blur is None:
+        args.fg_glow_blur = 24
 
     if args.preview:
         args.profile = "preview"
@@ -400,6 +481,8 @@ def main() -> None:
                 feather=args.feather,
                 gutter_thicken=args.gutter_thicken,
                 min_area_ratio=args.min_panel_area_ratio,
+                roughen=args.roughen,
+                roughen_scale=args.roughen_scale,
             )
         return
 
@@ -439,11 +522,11 @@ def main() -> None:
             for f in os.listdir(args.folder)
             if os.path.splitext(f)[1].lower() in {".mp3", ".wav", ".m4a"}
         ]
-        audio_path = None
-        if audios:
+        audio_path = args.audio
+        if not audio_path and audios:
             audio_path = os.path.join(args.folder, audios[0])
-            if args.align_beat:
-                beat_times = extract_beats(audio_path)
+        if audio_path and args.align_beat:
+            beat_times = extract_beats(audio_path)
 
         clip = make_panels_cam_sequence(
             images,
@@ -513,6 +596,8 @@ def main() -> None:
                         feather=1,
                         gutter_thicken=args.gutter_thicken,
                         min_area_ratio=args.min_panel_area_ratio,
+                        roughen=args.roughen,
+                        roughen_scale=args.roughen_scale,
                     )
                 panels_dir = tmpd
             except Exception as e:
@@ -546,6 +631,8 @@ def main() -> None:
             overlay_mode=args.overlay_mode,
             overlay_scale=args.overlay_scale,
             bg_source=args.bg_source,
+            bg_blur=args.bg_blur,
+            bg_tex=args.bg_tex,
             bg_tone_strength=args.bg_tone_strength,
             parallax_bg=args.parallax_bg,
             parallax_fg=args.parallax_fg,
@@ -553,6 +640,8 @@ def main() -> None:
             fg_shadow_blur=args.fg_shadow_blur,
             fg_shadow_offset=args.fg_shadow_offset,
             fg_shadow_mode=args.fg_shadow_mode,
+            fg_glow=args.fg_glow,
+            fg_glow_blur=args.fg_glow_blur,
             min_panel_area_ratio=args.min_panel_area_ratio,
             gutter_thicken=args.gutter_thicken,
             debug_overlay=args.debug_overlay,
@@ -562,7 +651,7 @@ def main() -> None:
             smear_strength=args.smear_strength,
         )
         if audio_path:
-            audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit)
+            audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit, gain_db=args.audio_gain)
             clip = clip.set_audio(audio)
         out_path = os.path.join(args.folder, "final_video.mp4")
         prof = _export_profile(args.profile, args.codec, target_size)
