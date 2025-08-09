@@ -79,6 +79,8 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
                 bleed=12,
                 tight_border=2,
                 feather=2,
+                gutter_thicken=args.gutter_thicken,
+                min_area_ratio=args.min_panel_area_ratio,
             )
 
         beat_times = None
@@ -110,9 +112,14 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             align_beat=args.align_beat,
             beat_times=beat_times,
             overlay_fit=0.75,
+            overlay_mode=args.overlay_mode,
+            overlay_scale=args.overlay_scale,
             bg_source="page",
             parallax_bg=0.85,
             parallax_fg=0.08,
+            min_panel_area_ratio=args.min_panel_area_ratio,
+            gutter_thicken=args.gutter_thicken,
+            debug_overlay=args.debug_overlay,
             limit_items=args.limit_items,
             trans="smear",
             trans_dur=0.30,
@@ -289,6 +296,18 @@ def main() -> None:
     parser.add_argument("--overlay-fit", type=_overlay_fit_type, default=0.75, help="Udział wysokości kadru dla panelu")
     parser.add_argument("--overlay-margin", type=int, default=0, help="Margines wokół panelu")
     parser.add_argument(
+        "--overlay-mode",
+        choices=["anchored", "center"],
+        default="anchored",
+        help="Pozycjonowanie panelu (anchored=centered to page pos, center=na środku)",
+    )
+    parser.add_argument(
+        "--overlay-scale",
+        type=float,
+        default=1.15,
+        help="Mnożnik skali panelu względem lokalnej skali tła",
+    )
+    parser.add_argument(
         "--bg-source",
         choices=["page", "blur", "stretch", "gradient"],
         default="page",
@@ -316,6 +335,23 @@ def main() -> None:
     )
     parser.add_argument("--parallax-bg", type=_parallax_type, default=0.85, help="Paralaksa tła overlay")
     parser.add_argument("--parallax-fg", type=_parallax_fg_type, default=0.0, help="Paralaksa panelu")
+    parser.add_argument(
+        "--gutter-thicken",
+        type=_clamp_nonneg_int,
+        default=2,
+        help="Pogrubienie korytarzy przy eksporcie masek (px)",
+    )
+    parser.add_argument(
+        "--min-panel-area-ratio",
+        type=float,
+        default=0.03,
+        help="Minimalny udział panelu w stronie",
+    )
+    parser.add_argument(
+        "--debug-overlay",
+        action="store_true",
+        help="Zapisz PNG z overlay dla pierwszych segmentów",
+    )
     parser.add_argument("--items-from", help="Folder z maskami paneli")
     args = parser.parse_args()
 
@@ -362,6 +398,8 @@ def main() -> None:
                 bleed=args.panel_bleed,
                 tight_border=args.tight_border,
                 feather=args.feather,
+                gutter_thicken=args.gutter_thicken,
+                min_area_ratio=args.min_panel_area_ratio,
             )
         return
 
@@ -473,6 +511,8 @@ def main() -> None:
                         bleed=0,
                         tight_border=0,
                         feather=1,
+                        gutter_thicken=args.gutter_thicken,
+                        min_area_ratio=args.min_panel_area_ratio,
                     )
                 panels_dir = tmpd
             except Exception as e:
@@ -503,6 +543,8 @@ def main() -> None:
             travel_ease=args.travel_ease,
             overlay_fit=args.overlay_fit,
             overlay_margin=args.overlay_margin,
+            overlay_mode=args.overlay_mode,
+            overlay_scale=args.overlay_scale,
             bg_source=args.bg_source,
             bg_tone_strength=args.bg_tone_strength,
             parallax_bg=args.parallax_bg,
@@ -511,6 +553,9 @@ def main() -> None:
             fg_shadow_blur=args.fg_shadow_blur,
             fg_shadow_offset=args.fg_shadow_offset,
             fg_shadow_mode=args.fg_shadow_mode,
+            min_panel_area_ratio=args.min_panel_area_ratio,
+            gutter_thicken=args.gutter_thicken,
+            debug_overlay=args.debug_overlay,
             limit_items=args.limit_items,
             trans=args.trans,
             trans_dur=args.trans_dur,

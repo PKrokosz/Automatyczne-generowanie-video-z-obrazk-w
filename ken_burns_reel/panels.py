@@ -8,7 +8,12 @@ from .utils import gaussian_blur
 Box = Tuple[int, int, int, int]
 
 
-def _build_panels_mask(mask_white: np.ndarray) -> np.ndarray:
+def _build_panels_mask(mask_white: np.ndarray, gutter_thicken: int = 0) -> np.ndarray:
+    if gutter_thicken > 0:
+        kernel_g = cv2.getStructuringElement(
+            cv2.MORPH_RECT, (gutter_thicken, gutter_thicken)
+        )
+        mask_white = cv2.dilate(mask_white, kernel_g, iterations=1)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
     gutters = cv2.morphologyEx(mask_white, cv2.MORPH_CLOSE, kernel, iterations=1)
     panels_mask = cv2.bitwise_not(gutters)
@@ -32,7 +37,11 @@ def alpha_bbox(arr: np.ndarray) -> Box:
     return (int(x0), int(y0), int(x1 - x0), int(y1 - y0))
 
 
-def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
+def detect_panels(
+    img: Image.Image,
+    min_area_ratio: float = 0.03,
+    gutter_thicken: int = 0,
+) -> List[Box]:
     rgb = np.array(img.convert("RGB"))
     lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
     L = lab[:, :, 0]
@@ -42,13 +51,22 @@ def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
     white_ratio = float((mask_white == 255).mean())
     if white_ratio > 0.7:
         min_area_ratio *= 1.2
-    panels_mask = _build_panels_mask(mask_white)
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(panels_mask, connectivity=8)
+    panels_mask = _build_panels_mask(mask_white, gutter_thicken)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(
+        panels_mask, connectivity=8
+    )
+    if num < 2 and white_ratio > 0.7:
+        thr2 = np.clip(med + 18, 180, 245).astype(np.uint8)
+        _, mask_white = cv2.threshold(L, thr2, 255, cv2.THRESH_BINARY)
+        panels_mask = _build_panels_mask(mask_white, gutter_thicken)
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(
+            panels_mask, connectivity=8
+        )
     if num < 2:
         _, mask_white = cv2.threshold(
             L, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-        panels_mask = _build_panels_mask(mask_white)
+        panels_mask = _build_panels_mask(mask_white, gutter_thicken)
         num, labels, stats, _ = cv2.connectedComponentsWithStats(
             panels_mask, connectivity=8
         )
@@ -61,7 +79,7 @@ def detect_panels(img: Image.Image, min_area_ratio: float = 0.03) -> List[Box]:
             31,
             -5,
         )
-        panels_mask = _build_panels_mask(mask_white)
+        panels_mask = _build_panels_mask(mask_white, gutter_thicken)
         num, labels, stats, _ = cv2.connectedComponentsWithStats(
             panels_mask, connectivity=8
         )
@@ -160,6 +178,8 @@ def export_panels(
     bleed: int = 24,
     tight_border: int = 1,
     feather: int = 1,
+    gutter_thicken: int = 0,
+    min_area_ratio: float = 0.03,
 ) -> List[str]:
     """Detect panels in *image_path* and export them to *out_dir*.
 
@@ -190,14 +210,17 @@ def export_panels(
     med = np.median(L)
     thr = np.clip(med + 25, 180, 245).astype(np.uint8)
     _, mask_white = cv2.threshold(L, thr, 255, cv2.THRESH_BINARY)
-    panels_mask = _build_panels_mask(mask_white)
+    white_ratio = float((mask_white == 255).mean())
+    if white_ratio > 0.7:
+        min_area_ratio *= 1.2
+    panels_mask = _build_panels_mask(mask_white, gutter_thicken)
     num, labels, stats, _ = cv2.connectedComponentsWithStats(
         panels_mask, connectivity=8
     )
     H, W = panels_mask.shape
 
     comps: List[Tuple[Box, int]] = []
-    min_area = int(0.03 * W * H)
+    min_area = int(min_area_ratio * W * H)
     for i in range(1, num):
         x, y, w, h, area = stats[i]
         if area < min_area:
@@ -231,7 +254,8 @@ def export_panels(
                 mask_crop = cv2.erode(mask_crop, kernel, iterations=1)
             if feather > 0:
                 mask_crop = gaussian_blur(mask_crop, sigma=feather)
-            rgba = np.dstack([crop, mask_crop])
+            alpha = mask_crop
+            rgba = np.dstack([crop, alpha])
             im_out = Image.fromarray(rgba, mode="RGBA")
         else:
             im_out = Image.fromarray(crop, mode="RGB")
