@@ -5,13 +5,17 @@ import os
 from shutil import which
 
 import pytesseract
-from moviepy.config import change_settings
+try:
+    from moviepy.config import change_settings
+except ImportError:  # moviepy >=2.0
+    change_settings = None
 
 # Default binaries (can be overridden via environment)
 IMAGEMAGICK_BINARY = os.environ.get(
     "IMAGEMAGICK_BINARY"
 ) or r"C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI\\magick.exe"
-change_settings({"IMAGEMAGICK_BINARY": IMAGEMAGICK_BINARY})
+if change_settings:
+    change_settings({"IMAGEMAGICK_BINARY": IMAGEMAGICK_BINARY})
 
 pytesseract.pytesseract.tesseract_cmd = (
     os.environ.get("TESSERACT_BINARY")

@@ -1,5 +1,8 @@
 from ken_burns_reel.transitions import slide_transition
-from moviepy.editor import ColorClip
+try:
+    from moviepy.editor import ColorClip
+except ModuleNotFoundError:  # moviepy >=2.0
+    from moviepy import ColorClip
 
 
 def test_slide_transition_basic():

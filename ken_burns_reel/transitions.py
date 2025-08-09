@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from moviepy.editor import CompositeVideoClip
+try:
+    from moviepy.editor import CompositeVideoClip
+except ModuleNotFoundError:  # moviepy >=2.0
+    from moviepy import CompositeVideoClip
 
 
 def slide_transition(prev_clip, next_clip, duration: float, size: Tuple[int, int], fps: int):

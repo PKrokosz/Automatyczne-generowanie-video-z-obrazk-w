@@ -41,11 +41,12 @@ cd Automatyczne-generowanie-video-z-obrazkow
 
 2. **Instalacja zależności**
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 3. **Wymagania dodatkowe**
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) — wymagany do ekstrakcji tekstu z obrazów (OCR)
+- [ImageMagick](https://imagemagick.org) — renderowanie podpisów
 - FFmpeg — wymagany przez MoviePy do renderowania wideo
 
 ### Konfiguracja binarek
@@ -72,18 +73,13 @@ Na Windows upewnij się, że:
 python -m ken_burns_reel <ścieżka_do_folderu_z_obrazkami> --output output.mp4
 ```
 
-### 2. Skrypt przewijania + audio
-```bash
-python ken_burns_scroll_audio.py --input obrazy/ --audio muzyka.mp3 --output wideo.mp4
-```
-
 **Najważniejsze opcje CLI**:
-- `--input` — katalog z obrazami
-- `--audio` — ścieżka do pliku audio
-- `--output` — nazwa pliku wynikowego
-- `--duration` — czas trwania wideo w sekundach
-- `--zoom` — poziom powiększenia efektu Ken Burns
-- `--scroll` — włączenie przewijania obrazu
+- `--audio-fit {trim,silence,loop}` — dopasowanie długości audio do wideo
+- `--dwell-mode {first,each}` — zatrzymanie tylko na pierwszym panelu lub na każdym
+- `--align-beat` — dociąga start stron do beatu (±0.08 s, bez ujemnych segmentów)
+- `--debug-panels` — zapisuje podgląd wykrytych paneli i kończy działanie
+
+Czas trwania filmu wynika z sumy klipów wideo, a audio jest dostosowywane zgodnie z `--audio-fit`.
 
 ---
 

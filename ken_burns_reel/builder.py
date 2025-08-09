@@ -6,20 +6,39 @@ import math
 import os
 from typing import List, Tuple
 
-from moviepy.editor import (
-    AudioFileClip,
-    ImageClip,
-    CompositeVideoClip,
-    concatenate_videoclips,
-    VideoClip,
-)
-from moviepy.audio.fx import audio_fadein, audio_fadeout
-from moviepy.video.fx.all import crop
+try:
+    from moviepy.editor import (
+        AudioFileClip,
+        ImageClip,
+        CompositeVideoClip,
+        VideoClip,
+        concatenate_audioclips,
+        concatenate_videoclips,
+    )
+except ModuleNotFoundError:  # moviepy >=2.0
+    from moviepy import (
+        AudioFileClip,
+        ImageClip,
+        CompositeVideoClip,
+        VideoClip,
+        concatenate_audioclips,
+        concatenate_videoclips,
+    )
+from moviepy.audio.AudioClip import AudioClip
+try:
+    from moviepy.audio.fx.audio_fadein import audio_fadein
+    from moviepy.audio.fx.audio_fadeout import audio_fadeout
+except ImportError:  # moviepy >=2.0
+    from moviepy.audio.fx import AudioFadeIn as audio_fadein, AudioFadeOut as audio_fadeout
+try:
+    from moviepy.video.fx.all import crop
+except ModuleNotFoundError:  # moviepy >=2.0
+    from moviepy.video.fx import Crop as crop
 from PIL import Image
 
 from .audio import extract_beats
 from .focus import detect_focus_point
-from .ocr import extract_caption, text_boxes_stats
+from .ocr import extract_caption, text_boxes_stats, page_ocr_data
 from .captions import overlay_caption
 from .config import IMAGE_EXTS, AUDIO_EXTS
 
@@ -27,6 +46,40 @@ from .config import IMAGE_EXTS, AUDIO_EXTS
 import numpy as np
 from .panels import detect_panels, order_panels_lr_tb
 import cv2
+
+
+def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
+    """Return an audio clip resized to *duration* using *mode* strategy."""
+    audio = AudioFileClip(path)
+    if mode == "trim":
+        audio = audio.subclip(0, duration)
+    elif mode == "silence":
+        if audio.duration < duration:
+            deficit = duration - audio.duration
+            silence = AudioClip(
+                lambda t: np.zeros((np.size(t), audio.nchannels)),
+                duration=deficit,
+                fps=audio.fps,
+            )
+            audio = concatenate_audioclips([audio, silence])
+        else:
+            audio = audio.subclip(0, duration)
+    elif mode == "loop":
+        if audio.duration >= duration:
+            audio = audio.subclip(0, duration)
+        else:
+            reps = int(duration // audio.duration)
+            rem = duration - reps * audio.duration
+            clips = [audio] * reps
+            if rem > 0:
+                clips.append(audio.subclip(0, rem))
+            audio = concatenate_audioclips(clips)
+    else:
+        raise ValueError(f"unknown audio-fit mode: {mode}")
+    audio = audio.set_duration(duration)
+    audio = audio_fadein(audio, 0.15)
+    audio = audio_fadeout(audio, 0.15)
+    return audio
 
 def _fit_window_to_box(img_w, img_h, box, target_size):
     """Return (cx, cy, win_w, win_h) framing window to fit a panel."""
@@ -66,6 +119,7 @@ def apply_clahe_rgb(arr):
     target = 0.55
     if mean > 0:
         gamma = math.log(target) / math.log(mean)
+        gamma = max(0.7, min(1.4, gamma))
         Lg = np.clip((Lf ** gamma) * 255.0, 0, 255).astype(np.uint8)
         lab2 = cv2.merge([Lg, a, b])
         arr2 = cv2.cvtColor(lab2, cv2.COLOR_LAB2RGB)
@@ -81,25 +135,47 @@ def make_panels_cam_clip(
     settle: float = 0.1,
     easing: str = "ease",
     dwell_scale: float = 1.0,
+    dwell_mode: str = "first",
 ):
     """Animate camera between comic panels detected in the image."""
     with Image.open(image_path) as im:
         W, H = im.size
         arr = apply_clahe_rgb(np.array(im))
         boxes = order_panels_lr_tb(detect_panels(Image.fromarray(arr)))
+        page_ocr = page_ocr_data(Image.fromarray(arr))
     if not boxes:
         return ImageClip(arr).resize(newsize=target_size).set_duration(3)
 
     # panel weights for dwell time
     weights = []
+    stats_cache: List[dict] = []
     for x, y, w, h in boxes:
         area = w * h
         crop_arr = arr[y : y + h, x : x + w]
         gray = cv2.cvtColor(crop_arr, cv2.COLOR_RGB2GRAY)
         edges = cv2.Canny(gray, 100, 200)
         edge_density = float(np.count_nonzero(edges)) / edges.size
-        stats = text_boxes_stats(Image.fromarray(crop_arr))
-        has_text = stats.get("word_count", 0) > 0
+        # gather stats from cached OCR data
+        heights = []
+        words = 0
+        for bx, by, bw, bh, txt in zip(
+            page_ocr.get("left", []),
+            page_ocr.get("top", []),
+            page_ocr.get("width", []),
+            page_ocr.get("height", []),
+            page_ocr.get("text", []),
+        ):
+            if not txt.strip():
+                continue
+            if bx < x or by < y or bx + bw > x + w or by + bh > y + h:
+                continue
+            if bh < 4 or bh > 0.5 * h:
+                continue
+            heights.append(bh)
+            words += 1
+        med = float(np.median(heights)) * 0.7 if heights else 0.0
+        stats_cache.append({"median_word_height": med, "word_count": words})
+        has_text = words > 0
         weight = area * (1 + edge_density) * (1.2 if has_text else 1.0)
         weights.append(weight)
 
@@ -113,10 +189,15 @@ def make_panels_cam_clip(
     dwell_times = [dwell * w * dwell_scale for w in norm_w]
 
     base = ImageClip(arr).set_duration(1).set_fps(fps)
-    segs = []
-    for i in range(len(boxes)):
-        segs.append(("dwell", i, dwell_times[i]))
-        if i < len(boxes) - 1:
+    segs: List[Tuple[str, int | Tuple[int, int], float]] = []
+    if dwell_mode == "each":
+        for i in range(len(boxes)):
+            segs.append(("dwell", i, dwell_times[i]))
+            if i < len(boxes) - 1:
+                segs.append(("travel", (i, i + 1), travel))
+    else:
+        segs.append(("dwell", 0, dwell_times[0]))
+        for i in range(len(boxes) - 1):
             segs.append(("travel", (i, i + 1), travel))
     total = sum(d for _, _, d in segs)
 
@@ -129,7 +210,7 @@ def make_panels_cam_clip(
                     cx, cy, ww, wh = _fit_window_to_box(W, H, boxes[idx], target_size)
                     # additional zoom if text is tiny
                     x, y, bw, bh = boxes[idx]
-                    stats = text_boxes_stats(Image.fromarray(arr[y : y + bh, x : x + bw]))
+                    stats = stats_cache[idx]
                     med = stats.get("median_word_height", 0.0)
                     if med and med / max(1, bh) < 0.035:
                         zoom = 1 / 1.06
@@ -198,6 +279,9 @@ def make_panels_cam_sequence(
     dwell_scale: float = 1.0,
     align_beat: bool = False,
     beat_times: List[float] | None = None,
+    audio_path: str | None = None,
+    audio_fit: str = "trim",
+    dwell_mode: str = "first",
 ):
     """
     Buduje jeden film, sklejając panel-camera clippy dla wszystkich stron.
@@ -215,6 +299,7 @@ def make_panels_cam_sequence(
             settle=settle,
             easing=easing,
             dwell_scale=dwell_scale,
+            dwell_mode=dwell_mode,
         )
         for p in image_paths
     ]
@@ -226,7 +311,7 @@ def make_panels_cam_sequence(
         if align_beat and beat_times:
             nearest = min(beat_times, key=lambda b: abs(b - start))
             delta = nearest - start
-            if abs(delta) <= 0.08:
+            if abs(delta) <= 0.08 and clips[i].duration - delta >= 0.2:
                 start = nearest
                 clips[i] = clips[i].set_duration(clips[i].duration - delta)
         starts.append(start)
@@ -245,6 +330,9 @@ def make_panels_cam_sequence(
 
     final_duration = starts[-1] + clips[-1].duration
     final = CompositeVideoClip(clips, size=target_size).set_duration(final_duration)
+    if audio_path:
+        audio = _fit_audio_clip(audio_path, final_duration, audio_fit)
+        final = final.set_audio(audio)
     return final
 
 
@@ -271,7 +359,7 @@ def ken_burns_scroll(
     return overlay_caption(zoomed, caption, screen_size)
 
 
-def make_filmstrip(input_folder: str) -> str:
+def make_filmstrip(input_folder: str, audio_fit: str = "trim") -> str:
     """Build final video from assets in *input_folder*."""
     image_files = sorted(
         f
@@ -306,10 +394,9 @@ def make_filmstrip(input_folder: str) -> str:
         clips.append(clip)
 
     final_clip = concatenate_videoclips(clips, method="compose")
-    audioclip = AudioFileClip(audio_path)
-    audioclip = audio_fadein.audio_fadein(audioclip, 0.15)
-    audioclip = audio_fadeout.audio_fadeout(audioclip, 0.15)
-    final_clip = final_clip.set_audio(audioclip)
+    video_duration = sum(c.duration for c in clips)
+    audio = _fit_audio_clip(audio_path, video_duration, audio_fit)
+    final_clip = final_clip.set_audio(audio)
     output_path = os.path.join(input_folder, "final_video.mp4")
     final_clip.write_videofile(output_path, fps=30, codec="libx264")
     return output_path
