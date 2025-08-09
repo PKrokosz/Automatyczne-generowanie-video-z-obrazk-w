@@ -128,6 +128,16 @@ oraz winietę, dzięki czemu tło jest stonowane.
 - `stretch`
 - `gradient`
 
+#### Overlay z trzema warstwami
+
+Tryb `panels-overlay` może korzystać z rozmytego, prawie statycznego tła i
+lewitujących paneli. Przydatne flagi:
+
+- `--bg-blur` – poziom rozmycia tła (domyślnie 8.0)
+- `--bg-parallax` – siła ruchu tła (domyślnie 0.05 w `panels-overlay`)
+- `--roughen`, `--roughen-scale` – nieregularne krawędzie masek paneli
+- `--export-mode rect` – zapis prostokątnych paneli z pełną alfą
+
 ---
 
 ## 📂 Struktura projektu
