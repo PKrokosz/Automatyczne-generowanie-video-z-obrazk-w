@@ -114,6 +114,13 @@ W tym trybie pełna strona stanowi tło z płynnym ruchem między panelami,
 a pojedynczy panel (z zachowaną białą ramką) pojawia się na środku
 kadru jako nakładka z cieniem.
 
+`--bg-source`:
+
+- `page` (crop strony z toningiem)
+- `blur`
+- `stretch`
+- `gradient`
+
 ---
 
 ## 📂 Struktura projektu
