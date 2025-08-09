@@ -803,26 +803,46 @@ def make_panels_overlay_sequence(
         fg = fg.set_mask(fg_mask)
         fg_clips.append(fg)
 
+    # prepare per-segment timing
+    n = len(fg_clips)
+    dwell_list = [dwell] * n
+    settle_list = [0.0] * n
+    starts = [0.0]
+    for i in range(1, n):
+        start = starts[i - 1] + dwell_list[i - 1] + settle_list[i - 1] + trans_dur
+        if align_beat and beat_times:
+            nearest = min(beat_times, key=lambda b: abs(b - start))
+            delta = nearest - start
+            seg_len = dwell_list[i]
+            if abs(delta) <= 0.08 and seg_len >= 0.2 and seg_len - delta >= 0.2:
+                start = nearest
+                if delta > 0:  # shift later, shorten dwell
+                    dwell_list[i] = seg_len - delta
+                elif delta < 0:  # shift earlier, extend settle
+                    settle_list[i] = min(0.2, settle_list[i] - delta)
+        starts.append(start)
+
     seq: List[VideoClip] = []
-    for i in range(len(fg_clips)):
-        comp = (
-            _set_fps(
-                CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size)
-                .set_duration(dwell + travel),
-                fps,
-            )
+    for i in range(n):
+        comp = _set_fps(
+            CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size)
+            .set_duration(dwell + travel),
+            fps,
         )
-        seq.append(comp.subclip(0, dwell))
-        if i < len(fg_clips) - 1:
+        seg_dur = dwell_list[i] + settle_list[i]
+        seq.append(comp.subclip(0, seg_dur))
+        if i < n - 1:
             vec = (
                 items[i + 1]["center"][0] - items[i]["center"][0],
                 items[i + 1]["center"][1] - items[i]["center"][1],
             )
+            tail_bg = bg_clips[i].subclip(0, seg_dur + trans_dur)
+            tail_fg = fg_clips[i].subclip(0, seg_dur + trans_dur)
             if trans == "smear":
                 tclip = smear_bg_crossfade_fg(
-                    bg_clips[i],
+                    tail_bg,
                     bg_clips[i + 1],
-                    fg_clips[i],
+                    tail_fg,
                     fg_clips[i + 1],
                     trans_dur,
                     target_size,
@@ -832,13 +852,12 @@ def make_panels_overlay_sequence(
                 )
             elif trans == "whip":
                 bg_t = whip_pan_transition(
-                    bg_clips[i], bg_clips[i + 1], trans_dur, target_size, vec, fps=fps
+                    tail_bg, bg_clips[i + 1], trans_dur, target_size, vec, fps=fps
                 )
                 fg_t = _set_fps(
                     CompositeVideoClip(
                         [
-                            fg_clips[i]
-                            .subclip(dwell, dwell + trans_dur)
+                            tail_fg.subclip(seg_dur, seg_dur + trans_dur)
                             .crossfadeout(trans_dur),
                             fg_clips[i + 1]
                             .subclip(0, trans_dur)
@@ -864,7 +883,7 @@ def make_panels_overlay_sequence(
                         prev_comp, next_comp, trans_dur, target_size, fps
                     )
                 else:
-                    tail = prev_comp.subclip(dwell, dwell + trans_dur)
+                    tail = prev_comp.subclip(seg_dur, seg_dur + trans_dur)
                     head = next_comp.subclip(0, trans_dur)
                     tclip = _set_fps(
                         CompositeVideoClip(
