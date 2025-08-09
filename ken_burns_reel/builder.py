@@ -45,12 +45,17 @@ from .transitions import (
     slide_transition,
     smear_transition,
     whip_pan_transition,
+    smear_bg_crossfade_fg,
 )
 
 # Panel camera imports
 import numpy as np
-from .panels import detect_panels, order_panels_lr_tb
+from .panels import detect_panels, order_panels_lr_tb, alpha_bbox
 import cv2
+
+
+def _set_fps(clip, fps):
+    return clip.set_fps(fps) if hasattr(clip, "set_fps") else clip.with_fps(fps)
 
 
 def _fit_audio_clip(path: str, duration: float, mode: str) -> AudioFileClip:
@@ -271,7 +276,7 @@ def make_panels_cam_clip(
     norm_w = normalize_weights(weights)
     dwell_times = [dwell * w * dwell_scale for w in norm_w]
 
-    base = ImageClip(arr).set_duration(1).set_fps(fps)
+    base = _set_fps(ImageClip(arr).set_duration(1), fps)
     underlay0 = _make_underlay(arr, target_size, bg_mode)
     Wout, Hout = target_size
     fw = int(Wout * page_scale)
@@ -389,7 +394,7 @@ def make_panels_cam_clip(
 
     from moviepy.video.VideoClip import VideoClip
 
-    anim = VideoClip(make_frame=make_frame, duration=total).set_fps(fps)
+    anim = _set_fps(VideoClip(make_frame, duration=total), fps)
     return anim
 
 
@@ -523,7 +528,7 @@ def make_panels_items_sequence(
             canvas[y0 : y0 + fh, x0 : x0 + fw] = fg
             return canvas[:, :, ::-1]
 
-        return VideoClip(make_frame=make_frame, duration=dwell + trans_dur).set_fps(fps)
+        return _set_fps(VideoClip(make_frame, duration=dwell + trans_dur), fps)
 
     full_clips = [_panel_clip(p) for p in panel_paths]
 
@@ -561,7 +566,219 @@ def make_panels_items_sequence(
             seq.append(tclip)
 
     final = concatenate_videoclips(seq, method="compose")
-    return final.set_fps(fps)
+    return _set_fps(final, fps)
+
+
+def make_panels_overlay_sequence(
+    page_paths: List[str],
+    panels_dir: str,
+    target_size=(1080, 1920),
+    fps: int = 30,
+    dwell: float = 0.9,
+    travel: float = 0.5,
+    settle: float = 0.14,
+    travel_ease: str = "inout",
+    align_beat: bool = False,
+    beat_times=None,
+    overlay_fit: float = 0.75,
+    overlay_margin: int = 0,
+    bg_source: str = "page",
+    parallax_bg: float = 0.85,
+    parallax_fg: float = 0.0,
+    fg_shadow: float = 0.25,
+    fg_shadow_blur: int = 18,
+    fg_shadow_offset: int = 4,
+    limit_items: int = 999,
+    trans: str = "smear",
+    trans_dur: float = 0.3,
+    smear_strength: float = 1.0,
+) -> CompositeVideoClip:
+    """Render overlay sequence with static foreground panels."""
+
+    if not page_paths:
+        raise ValueError("make_panels_overlay_sequence: empty page_paths")
+
+    items = []
+    for idx, p in enumerate(page_paths, 1):
+        with Image.open(p) as im:
+            page_arr = np.array(im.convert("RGB"))
+            boxes = order_panels_lr_tb(detect_panels(im))
+        panel_folder = os.path.join(panels_dir, f"page_{idx:04d}")
+        panel_files = sorted(glob.glob(os.path.join(panel_folder, "panel_*.png")))
+        for box, panel_file in zip(boxes, panel_files):
+            items.append({"page": page_arr, "panel": panel_file, "box": box})
+            if len(items) >= limit_items:
+                break
+        if len(items) >= limit_items:
+            break
+
+    if not items:
+        raise ValueError("make_panels_overlay_sequence: no panels found")
+
+    for it in items:
+        with Image.open(it["panel"]) as im:
+            it["panel_arr"] = np.array(im.convert("RGBA"))
+        x, y, w, h = it["box"]
+        it["center"] = (x + w / 2.0, y + h / 2.0)
+
+    Wout, Hout = target_size
+
+    bg_clips: List[VideoClip] = []
+    fg_clips: List[VideoClip] = []
+
+    for i, it in enumerate(items):
+        page_arr = it["page"]
+        panel_arr = it["panel_arr"]
+        box = it["box"]
+        center = it["center"]
+        end_center = center
+        end_box = box
+        if i + 1 < len(items) and items[i + 1]["page"] is page_arr:
+            end_center = items[i + 1]["center"]
+            end_box = items[i + 1]["box"]
+        Hpage, Wpage = page_arr.shape[:2]
+        cx0, cy0, w0, h0 = _fit_window_to_box(Wpage, Hpage, box, target_size)
+        cx1, cy1, w1, h1 = _fit_window_to_box(Wpage, Hpage, end_box, target_size)
+        win_w = max(w0, w1)
+        win_h = max(h0, h1)
+        left0 = int(max(0, min(cx0 - win_w // 2, Wpage - win_w)))
+        top0 = int(max(0, min(cy0 - win_h // 2, Hpage - win_h)))
+        left1 = int(max(0, min(cx1 - win_w // 2, Wpage - win_w)))
+        top1 = int(max(0, min(cy1 - win_h // 2, Hpage - win_h)))
+
+        def make_bg(t, arr=page_arr, l0=left0, t0=top0, l1=left1, t1=top1):
+            if bg_source == "page":
+                if t <= dwell:
+                    l, tp = l0, t0
+                else:
+                    p = (t - dwell) / max(1e-6, travel)
+                    p = ease_in_out(p)
+                    l = l0 + parallax_bg * (l1 - l0) * p
+                    tp = t0 + parallax_bg * (t1 - t0) * p
+                l = int(max(0, min(l, Wpage - win_w)))
+                tp = int(max(0, min(tp, Hpage - win_h)))
+                crop = arr[tp : tp + win_h, l : l + win_w]
+                frame = cv2.resize(crop, (Wout, Hout), interpolation=cv2.INTER_CUBIC)
+            else:
+                frame = _make_underlay(arr, target_size, bg_source)
+            return frame
+
+        bg = _set_fps(VideoClip(make_bg, duration=dwell + travel), fps)
+        bg = bg.set_mask(ImageClip(np.zeros((Hout, Wout)), ismask=True).set_duration(dwell + travel))
+        bg_clips.append(bg)
+
+        x0, y0, w0, h0 = alpha_bbox(panel_arr)
+        panel = panel_arr[y0 : y0 + h0, x0 : x0 + w0]
+        ph, pw = panel.shape[:2]
+        max_h = overlay_fit * Hout - 2 * overlay_margin
+        max_w = Wout - 2 * overlay_margin
+        scale = min(max_h / max(1, ph), max_w / max(1, pw))
+        nw = int(round(pw * scale))
+        nh = int(round(ph * scale))
+        resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
+        canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
+        x_pos = (Wout - nw) // 2
+        y_pos = (Hout - nh) // 2
+        if fg_shadow > 0:
+            mask_alpha = resized[:, :, 3]
+            if fg_shadow_blur > 0:
+                shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
+            else:
+                shadow = mask_alpha
+            shadow = (shadow.astype(np.float32) * (fg_shadow / 255.0))
+            sx = x_pos + fg_shadow_offset
+            sy = y_pos + fg_shadow_offset
+            ex = sx + nw
+            ey = sy + nh
+            for c in range(3):
+                region = canvas[sy:ey, sx:ex, c].astype(np.float32)
+                canvas[sy:ey, sx:ex, c] = np.clip(region * (1 - shadow), 0, 255)
+        canvas[y_pos : y_pos + nh, x_pos : x_pos + nw] = resized
+        img = canvas[:, :, :3]
+        mask_img = canvas[:, :, 3] / 255.0
+        fg = (
+            ImageClip(img, ismask=False)
+            .set_mask(ImageClip(mask_img, ismask=True))
+            .set_duration(dwell + travel)
+            .set_fps(fps)
+        )
+        fg_clips.append(fg)
+
+    seq: List[VideoClip] = []
+    for i in range(len(fg_clips)):
+        comp = (
+            CompositeVideoClip([bg_clips[i], fg_clips[i]], size=target_size)
+            .set_duration(dwell + travel)
+            .set_fps(fps)
+        )
+        seq.append(comp.subclip(0, dwell))
+        if i < len(fg_clips) - 1:
+            vec = (
+                items[i + 1]["center"][0] - items[i]["center"][0],
+                items[i + 1]["center"][1] - items[i]["center"][1],
+            )
+            if trans == "smear":
+                tclip = smear_bg_crossfade_fg(
+                    bg_clips[i],
+                    bg_clips[i + 1],
+                    fg_clips[i],
+                    fg_clips[i + 1],
+                    trans_dur,
+                    target_size,
+                    vec,
+                    strength=smear_strength,
+                    fps=fps,
+                )
+            elif trans == "whip":
+                bg_t = whip_pan_transition(
+                    bg_clips[i], bg_clips[i + 1], trans_dur, target_size, vec, fps=fps
+                )
+                fg_t = (
+                    CompositeVideoClip(
+                        [
+                            fg_clips[i]
+                            .subclip(dwell, dwell + trans_dur)
+                            .crossfadeout(trans_dur),
+                            fg_clips[i + 1]
+                            .subclip(0, trans_dur)
+                            .crossfadein(trans_dur),
+                        ],
+                        size=target_size,
+                    )
+                    .set_duration(trans_dur)
+                    .set_fps(fps)
+                )
+                tclip = (
+                    CompositeVideoClip([bg_t, fg_t], size=target_size)
+                    .set_duration(trans_dur)
+                    .set_fps(fps)
+                )
+            else:
+                prev_comp = CompositeVideoClip(
+                    [bg_clips[i], fg_clips[i]], size=target_size
+                )
+                next_comp = CompositeVideoClip(
+                    [bg_clips[i + 1], fg_clips[i + 1]], size=target_size
+                )
+                if trans == "slide":
+                    tclip = slide_transition(
+                        prev_comp, next_comp, trans_dur, target_size, fps
+                    )
+                else:
+                    tail = prev_comp.subclip(dwell, dwell + trans_dur)
+                    head = next_comp.subclip(0, trans_dur)
+                    tclip = (
+                        CompositeVideoClip(
+                            [tail.crossfadeout(trans_dur), head.crossfadein(trans_dur)],
+                            size=target_size,
+                        )
+                        .set_duration(trans_dur)
+                        .set_fps(fps)
+                    )
+            seq.append(tclip)
+
+    final = concatenate_videoclips(seq, method="compose")
+    return _set_fps(final, fps)
 
 
 def _export_profile(profile: str, codec: str, target_size: Tuple[int, int]) -> Dict[str, object]:

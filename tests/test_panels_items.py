@@ -3,8 +3,12 @@ import numpy as np
 from PIL import Image
 
 from ken_burns_reel.panels import export_panels
-from ken_burns_reel.transitions import smear_transition, whip_pan_transition
-from ken_burns_reel.builder import make_panels_items_sequence
+from ken_burns_reel.transitions import (
+    smear_transition,
+    whip_pan_transition,
+    smear_bg_crossfade_fg,
+)
+from ken_burns_reel.builder import make_panels_items_sequence, make_panels_overlay_sequence
 
 try:
     from moviepy.editor import ColorClip
@@ -71,3 +75,60 @@ def test_make_panels_items_sequence_duration(tmp_path):
     clip = make_panels_items_sequence([str(p1), str(p2)], dwell=0.5, trans="smear", trans_dur=0.3)
     assert abs(clip.duration - (0.5 * 2 + 0.3)) < 0.05
     assert clip.size == [1080, 1920] or clip.size == (1080, 1920)
+
+
+def test_overlay_center_and_fit(tmp_path):
+    page = _make_test_page(tmp_path)
+    mask_dir = tmp_path / "mask" / "page_0001"
+    paths = export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "mask"),
+        target_size=(200, 100),
+        dwell=0.1,
+        travel=0.1,
+        overlay_fit=0.75,
+    )
+    m = clip.mask.get_frame(0)
+    ys, xs = np.where(m > 0.1)
+    cx = (xs.min() + xs.max()) / 2
+    cy = (ys.min() + ys.max()) / 2
+    assert abs(cx - clip.w / 2) <= 1
+    assert abs(cy - clip.h / 2) <= 1
+    h = ys.max() - ys.min()
+    assert abs(h - 0.75 * clip.h) / clip.h < 0.02
+
+
+def test_overlay_background_moves(tmp_path):
+    page = _make_test_page(tmp_path)
+    mask_dir = tmp_path / "mask" / "page_0001"
+    export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
+    clip = make_panels_overlay_sequence(
+        [str(page)],
+        str(tmp_path / "mask"),
+        target_size=(200, 100),
+        dwell=0.1,
+        travel=0.2,
+    )
+    f1 = clip.get_frame(0.11)
+    f2 = clip.get_frame(0.27)
+    assert not np.allclose(f1, f2)
+    assert f1.mean() > 1
+
+
+def test_smear_bg_crossfade_fg_edges():
+    from moviepy.editor import ColorClip, ImageClip
+    import cv2
+    import numpy as np
+
+    bg1 = ColorClip(size=(50, 50), color=(255, 0, 0)).set_duration(1).set_fps(24)
+    bg2 = ColorClip(size=(50, 50), color=(0, 255, 0)).set_duration(1).set_fps(24)
+    arr = np.zeros((50, 50, 4), dtype=np.uint8)
+    cv2.rectangle(arr, (5, 5), (45, 45), (255, 255, 255, 255), 2)
+    fg = ImageClip(arr[:, :, :3], ismask=False).set_mask(
+        ImageClip(arr[:, :, 3] / 255.0, ismask=True)
+    ).set_duration(1).set_fps(24)
+    trans = smear_bg_crossfade_fg(bg1, bg2, fg, fg, 0.3, (50, 50), vec=(20, 0), fps=24)
+    frame = trans.get_frame(0.15)
+    edges = cv2.Canny(frame, 50, 150)
+    assert edges.mean() > 5

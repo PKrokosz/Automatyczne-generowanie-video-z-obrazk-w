@@ -5,7 +5,7 @@ import argparse
 import os
 
 from .bin_config import resolve_imagemagick, resolve_tesseract
-from .builder import make_filmstrip, _export_profile
+from .builder import make_filmstrip, _export_profile, _fit_audio_clip
 from .ocr import verify_tesseract_available
 
 
@@ -56,13 +56,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["classic", "panels", "panels-items"],
+        choices=["classic", "panels", "panels-items", "panels-overlay"],
         default="classic",
         help=(
-            "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli"
+            "classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli; panels-overlay: tło strona, foreground panel"
         ),
     )
-    parser.add_argument("--limit-items", type=int, default=999, help="Limit liczby paneli w oneclick")
+    parser.add_argument("--limit-items", type=int, default=999, help="Limit liczby paneli w overlay")
     parser.add_argument("--tight-border", type=int, default=1, help="Erozja konturu w eksporcie mask (px)")
     parser.add_argument("--feather", type=int, default=1, help="Feather alpha w eksporcie mask (px)")
     parser.add_argument(
@@ -185,6 +185,27 @@ def main() -> None:
         help="Proporcje (z --height)",
     )
     parser.add_argument("--height", type=int, help="Wysokość dla --aspect")
+
+    def _overlay_fit_type(x: str) -> float:
+        v = float(x)
+        if not (0.5 <= v <= 0.95):
+            raise argparse.ArgumentTypeError("--overlay-fit must be in [0.50,0.95]")
+        return v
+
+    parser.add_argument("--overlay-fit", type=_overlay_fit_type, default=0.75, help="Udział wysokości kadru dla panelu")
+    parser.add_argument("--overlay-margin", type=int, default=0, help="Margines wokół panelu")
+    parser.add_argument(
+        "--bg-source",
+        choices=["page", "blur", "stretch", "gradient"],
+        default="page",
+        help="Underlay w trybie overlay",
+    )
+    parser.add_argument("--fg-shadow", type=_parallax_type, default=0.25, help="Opacity cienia pod panelem")
+    parser.add_argument("--fg-shadow-blur", type=int, default=18, help="Rozmycie cienia fg")
+    parser.add_argument("--fg-shadow-offset", type=int, default=4, help="Offset cienia fg")
+    parser.add_argument("--parallax-bg", type=_parallax_type, default=0.85, help="Paralaksa tła overlay")
+    parser.add_argument("--parallax-fg", type=_parallax_type, default=0.0, help="Paralaksa panelu")
+    parser.add_argument("--items-from", help="Folder z maskami paneli")
     args = parser.parse_args()
 
     if args.preview:
@@ -293,6 +314,81 @@ def main() -> None:
             panel_bleed=args.panel_bleed,
             zoom_max=args.zoom_max,
         )
+        out_path = os.path.join(args.folder, "final_video.mp4")
+        prof = _export_profile(args.profile, args.codec, target_size)
+        if prof.get("resize"):
+            clip = clip.resize(newsize=prof["resize"])
+        clip.write_videofile(
+            out_path,
+            fps=prof["fps"],
+            codec=prof["codec"],
+            audio_codec=prof["audio_codec"],
+            audio_bitrate=prof["audio_bitrate"],
+            ffmpeg_params=prof["ffmpeg_params"],
+            preset=prof["preset"],
+        )
+    elif args.mode == "panels-overlay":
+        from .builder import make_panels_overlay_sequence
+        from .panels import export_panels
+        from .audio import extract_beats
+        import tempfile
+
+        pages_dir = args.folder
+        if os.path.isdir(os.path.join(args.folder, "pages")):
+            pages_dir = os.path.join(args.folder, "pages")
+        page_paths = [
+            os.path.join(pages_dir, f)
+            for f in os.listdir(pages_dir)
+            if os.path.splitext(f)[1].lower() in {".jpg", ".jpeg", ".png"}
+        ]
+        page_paths.sort(key=lambda s: os.path.basename(s).lower())
+        if not page_paths:
+            raise FileNotFoundError("Brak obrazów stron.")
+
+        if args.items_from:
+            panels_dir = args.items_from
+        else:
+            tmpd = tempfile.mkdtemp()
+            for i, p in enumerate(page_paths, 1):
+                out_sub = os.path.join(tmpd, f"page_{i:04d}")
+                export_panels(p, out_sub, mode="mask", bleed=0, tight_border=0, feather=1)
+            panels_dir = tmpd
+
+        beat_times = None
+        audios = [
+            f
+            for f in os.listdir(args.folder)
+            if os.path.splitext(f)[1].lower() in {".mp3", ".wav", ".m4a"}
+        ]
+        audio_path = None
+        if audios:
+            audio_path = os.path.join(args.folder, audios[0])
+            if args.align_beat:
+                beat_times = extract_beats(audio_path)
+
+        clip = make_panels_overlay_sequence(
+            page_paths,
+            panels_dir,
+            target_size=target_size,
+            fps=30,
+            dwell=args.dwell,
+            travel=args.travel,
+            overlay_fit=args.overlay_fit,
+            overlay_margin=args.overlay_margin,
+            bg_source=args.bg_source,
+            parallax_bg=args.parallax_bg,
+            parallax_fg=args.parallax_fg,
+            fg_shadow=args.fg_shadow,
+            fg_shadow_blur=args.fg_shadow_blur,
+            fg_shadow_offset=args.fg_shadow_offset,
+            limit_items=args.limit_items,
+            trans=args.trans,
+            trans_dur=args.trans_dur,
+            smear_strength=args.smear_strength,
+        )
+        if audio_path:
+            audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit)
+            clip = clip.set_audio(audio)
         out_path = os.path.join(args.folder, "final_video.mp4")
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
