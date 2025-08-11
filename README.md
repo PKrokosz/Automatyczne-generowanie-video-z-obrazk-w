@@ -276,6 +276,12 @@ Zalecane `--page-scale` w zakresie `0.90–0.95`. Wideo można wymiarować przez
 
 ---
 
+## 🤝 Wkład
+
+Zasady współpracy opisuje [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 ## 🧪 Testy
 Aby uruchomić testy:
 ```bash
