@@ -41,6 +41,18 @@ python -m ken_burns_reel . --mode panels --output out/
 python -m ken_burns_reel . --mode panels --output "out/custom.mp4"
 ```
 
+### Automatic naming
+
+```bash
+python -m ken_burns_reel . --mode panels --out-naming auto --out-prefix demo-
+```
+
+### Validation and deterministic mode
+
+```bash
+python -m ken_burns_reel . --mode classic --validate --deterministic
+```
+
 ## One-click mode
 
 **PowerShell**

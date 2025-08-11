@@ -1,0 +1,17 @@
+# Architecture
+- `color`: Colour space utilities.
+- `transitions`: Video transitions.
+- `utils`: Utility helpers for video creation.
+- `audio`: Audio processing helpers.
+- `__init__`: Ken Burns reel package.
+- `builder`: Core building logic for the Ken Burns reel.
+- `panels`: 
+- `ocr`: OCR helpers.
+- `cli`: 
+- `motion`: 
+- `layers`: Layer effects utilities.
+- `__main__`: Command line interface for ken_burns_reel.
+- `config`: Static configuration for ken_burns_reel.
+- `captions`: Caption rendering utilities.
+- `focus`: Focus point detection.
+- `bin_config`: Helpers to resolve external binary paths.
