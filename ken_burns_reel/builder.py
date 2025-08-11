@@ -261,6 +261,36 @@ def _paste_rgba_clipped(canvas: np.ndarray, overlay: np.ndarray, x: int, y: int)
     canvas[dst_y0:dst_y1, dst_x0:dst_x1, 3] = overlay[src_y0:src_y1, src_x0:src_x1, 3]
 
 
+def _hex_to_rgb(value: str) -> Tuple[int, int, int]:
+    """Convert ``"#rrggbb"`` hex color to an RGB tuple."""
+    value = value.lstrip("#")
+    if len(value) != 6:
+        raise ValueError(f"invalid hex color: {value}")
+    r = int(value[0:2], 16)
+    g = int(value[2:4], 16)
+    b = int(value[4:6], 16)
+    return r, g, b
+
+
+def _zoom_image_center(img: np.ndarray, scale: float) -> np.ndarray:
+    """Zoom ``img`` around its centre by ``scale`` keeping original size."""
+    if abs(scale - 1.0) < 1e-6:
+        return img
+    h, w = img.shape[:2]
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    if scale >= 1.0:
+        x0 = (new_w - w) // 2
+        y0 = (new_h - h) // 2
+        return resized[y0 : y0 + h, x0 : x0 + w]
+    canvas = np.zeros_like(img)
+    x0 = (w - new_w) // 2
+    y0 = (h - new_h) // 2
+    canvas[y0 : y0 + new_h, x0 : x0 + new_w] = resized
+    return canvas
+
+
 def _darken_region_with_alpha_clipped(
     canvas_rgb: np.ndarray, alpha_map: np.ndarray, x: int, y: int, strength: float
 ) -> None:
@@ -799,6 +829,16 @@ def make_panels_overlay_sequence(
     bg_vignette: float = 0.15,
     overlay_pop: float = 1.0,
     overlay_jitter: float = 0.0,
+    overlay_frame_px: int = 0,
+    overlay_frame_color: str = "#000000",
+    bg_offset: float = 0.0,
+    fg_offset: float = 0.0,
+    bg_drift_zoom: float = 0.0,
+    bg_drift_speed: float = 0.0,
+    fg_drift_zoom: float = 0.0,
+    fg_drift_speed: float = 0.0,
+    travel_path: str = "linear",
+    deep_bottom_glow: float = 0.0,
     look: str = "none",
     timing_profile: str = "free",
     bpm: int | None = None,
@@ -856,6 +896,7 @@ def make_panels_overlay_sequence(
         it["center"] = (x + w / 2.0, y + h / 2.0)
 
     Wout, Hout = target_size
+    frame_rgb = _hex_to_rgb(overlay_frame_color)
 
     bg_clips: List[VideoClip] = []
     fg_clips: List[VideoClip] = []
@@ -983,15 +1024,25 @@ def make_panels_overlay_sequence(
         else:
             left1, top1 = left0, top0
 
-        def make_bg(t, arr=page_arr, l0=left0, t0=top0, l1=left1, t1=top1):
+        def make_bg(t, arr=page_arr, l0=left0, t0=top0, l1=left1, t1=top1, seg_start=start):
             if bg_source == "page":
-                if t <= dwell:
+                tt = t - bg_offset
+                if tt <= dwell:
                     l, tp = l0, t0
                 else:
-                    p = (t - dwell) / max(1e-6, travel)
+                    p = (tt - dwell) / max(1e-6, travel)
                     p = ease_fn(p)
                     l = l0 + parallax_bg * (l1 - l0) * p
                     tp = t0 + parallax_bg * (t1 - t0) * p
+                    if travel_path == "arc":
+                        dx = l1 - l0
+                        dy = t1 - t0
+                        dist = math.hypot(dx, dy)
+                        if dist > 1e-6:
+                            px, py = -dy / dist, dx / dist
+                            off = math.sin(math.pi * p) * dist * 0.25 * parallax_bg
+                            l += px * off
+                            tp += py * off
                 l = int(max(0, min(l, Wpage - win_w)))
                 tp = int(max(0, min(tp, Hpage - win_h)))
                 crop = arr[tp : tp + win_h, l : l + win_w]
@@ -1044,6 +1095,13 @@ def make_panels_overlay_sequence(
                 frame = cv2.addWeighted(deep, 0.25, frame, 0.75, 0)
             if look == "witcher1":
                 frame = _apply_witcher_look(frame, bg_vignette)
+            if bg_drift_zoom > 0 and bg_drift_speed > 0:
+                phase = 2 * math.pi * bg_drift_speed * seg_start
+                scale = 1.0 + bg_drift_zoom * math.sin(phase + 2 * math.pi * bg_drift_speed * t)
+                frame = _zoom_image_center(frame, scale)
+            if deep_bottom_glow > 0:
+                grad = np.linspace(1.0, 1.0 + deep_bottom_glow, Hout, dtype=np.float32)[:, None]
+                frame = np.clip(frame.astype(np.float32) * grad[..., None], 0, 255).astype(np.uint8)
             return frame
 
         bg = _set_fps(VideoClip(make_bg, duration=dwell + travel + settle), fps)
@@ -1077,6 +1135,19 @@ def make_panels_overlay_sequence(
                 noise = cv2.GaussianBlur(noise, (0, 0), 5)
                 thr = 0.5 + overlay_edge_strength * 0.25
                 alpha_panel = (alpha_panel.astype(np.float32) * (noise > thr)).astype(np.uint8)
+            if overlay_frame_px > 0:
+                k = np.ones((overlay_frame_px * 2 + 1, overlay_frame_px * 2 + 1), np.uint8)
+                dil = cv2.dilate(alpha_panel, k, iterations=1)
+                ring = cv2.subtract(dil, alpha_panel)
+                if np.any(ring):
+                    ring_rgba = np.zeros_like(resized)
+                    ring_rgba[:, :, :3] = frame_rgb
+                    ring_rgba[:, :, 3] = ring
+                    canvas = np.zeros_like(resized)
+                    _paste_rgba_clipped(canvas, ring_rgba, 0, 0)
+                    _paste_rgba_clipped(canvas, resized, 0, 0)
+                    resized = canvas
+                    alpha_panel = resized[:, :, 3]
             glow_rgb = None
             if fg_glow > 0:
                 glow = cv2.GaussianBlur(alpha_panel, (0, 0), fg_glow_blur)
@@ -1090,13 +1161,23 @@ def make_panels_overlay_sequence(
             )
 
             def _pos(t):
-                if t <= dwell:
+                tt = t - fg_offset
+                if tt <= dwell:
                     l, tp = left0, top0
                 else:
-                    p = (t - dwell) / max(1e-6, travel)
+                    p = (tt - dwell) / max(1e-6, travel)
                     p = ease_fn(p)
                     l = left0 + parallax_bg * (left1 - left0) * p
                     tp = top0 + parallax_bg * (top1 - top0) * p
+                    if travel_path == "arc":
+                        dx = left1 - left0
+                        dy = top1 - top0
+                        dist = math.hypot(dx, dy)
+                        if dist > 1e-6:
+                            px, py = -dy / dist, dx / dist
+                            off = math.sin(math.pi * p) * dist * 0.25 * parallax_bg
+                            l += px * off
+                            tp += py * off
                 nat_cx = (x + w / 2 - l) / win_w * Wout
                 nat_cy = (y + h / 2 - tp) / win_h * Hout
                 cam_dx = (l - left0) / win_w * Wout
@@ -1107,13 +1188,18 @@ def make_panels_overlay_sequence(
                 y_pos = int(round(dst_cy - dst_h / 2))
                 return x_pos, y_pos
 
-            def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb):
+            def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb, seg_start=start, seg_idx=i):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
                 scale = 1.0
                 pop_dur = min(0.35, dwell)
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
+                if fg_drift_zoom > 0 and fg_drift_speed > 0:
+                    phase = 2 * math.pi * fg_drift_speed * seg_start
+                    scale *= 1.0 + fg_drift_zoom * math.sin(
+                        phase + 2 * math.pi * fg_drift_speed * t
+                    )
                 x_pos, y_pos = _pos(t)
                 use_overlay = overlay
                 if scale != 1.0:
@@ -1124,7 +1210,7 @@ def make_panels_overlay_sequence(
                     y_pos += (dst_h - oh) // 2
                 if overlay_jitter > 0:
                     frame_idx = int(round(t * fps))
-                    rng = np.random.default_rng(frame_idx + 1337)
+                    rng = np.random.default_rng(1337 + seg_idx * 10000 + frame_idx)
                     x_pos += int(round(rng.normal(0, overlay_jitter)))
                     y_pos += int(round(rng.normal(0, overlay_jitter)))
                 if fg_shadow > 0:
@@ -1138,13 +1224,18 @@ def make_panels_overlay_sequence(
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, :3]
 
-            def make_fg_mask(t, overlay=resized):
+            def make_fg_mask(t, overlay=resized, seg_start=start, seg_idx=i):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
                 scale = 1.0
                 pop_dur = min(0.35, dwell)
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
+                if fg_drift_zoom > 0 and fg_drift_speed > 0:
+                    phase = 2 * math.pi * fg_drift_speed * seg_start
+                    scale *= 1.0 + fg_drift_zoom * math.sin(
+                        phase + 2 * math.pi * fg_drift_speed * t
+                    )
                 x_pos, y_pos = _pos(t)
                 use_overlay = overlay
                 if scale != 1.0:
@@ -1155,7 +1246,7 @@ def make_panels_overlay_sequence(
                     y_pos += (dst_h - oh) // 2
                 if overlay_jitter > 0:
                     frame_idx = int(round(t * fps))
-                    rng = np.random.default_rng(frame_idx + 1337)
+                    rng = np.random.default_rng(1337 + seg_idx * 10000 + frame_idx)
                     x_pos += int(round(rng.normal(0, overlay_jitter)))
                     y_pos += int(round(rng.normal(0, overlay_jitter)))
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
@@ -1198,6 +1289,19 @@ def make_panels_overlay_sequence(
                 noise = cv2.GaussianBlur(noise, (0, 0), 5)
                 thr = 0.5 + overlay_edge_strength * 0.25
                 alpha_panel = (alpha_panel.astype(np.float32) * (noise > thr)).astype(np.uint8)
+            if overlay_frame_px > 0:
+                k = np.ones((overlay_frame_px * 2 + 1, overlay_frame_px * 2 + 1), np.uint8)
+                dil = cv2.dilate(alpha_panel, k, iterations=1)
+                ring = cv2.subtract(dil, alpha_panel)
+                if np.any(ring):
+                    ring_rgba = np.zeros_like(resized)
+                    ring_rgba[:, :, :3] = frame_rgb
+                    ring_rgba[:, :, 3] = ring
+                    canvas = np.zeros_like(resized)
+                    _paste_rgba_clipped(canvas, ring_rgba, 0, 0)
+                    _paste_rgba_clipped(canvas, resized, 0, 0)
+                    resized = canvas
+                    alpha_panel = resized[:, :, 3]
             glow_rgb = None
             if fg_glow > 0:
                 glow = cv2.GaussianBlur(alpha_panel, (0, 0), fg_glow_blur)
@@ -1213,24 +1317,39 @@ def make_panels_overlay_sequence(
 
             def _pos(t, xb=x_base, yb=y_base):
                 offx = offy = 0.0
-                if t > dwell:
-                    p = (t - dwell) / max(1e-6, travel)
+                tt = t - fg_offset
+                if tt > dwell:
+                    p = (tt - dwell) / max(1e-6, travel)
                     p = ease_fn(p)
                     offx = (cx1 - cx0) * parallax_fg * p * scale_x
                     offy = (cy1 - cy0) * parallax_fg * p * scale_y
+                    if travel_path == "arc":
+                        dx = (cx1 - cx0) * scale_x
+                        dy = (cy1 - cy0) * scale_y
+                        dist = math.hypot(dx, dy)
+                        if dist > 1e-6:
+                            px, py = -dy / dist, dx / dist
+                            off = math.sin(math.pi * p) * dist * 0.25 * parallax_fg
+                            offx += px * off
+                            offy += py * off
                 x_pos = int(round(xb + offx))
                 y_pos = int(round(yb + offy))
                 x_pos = max(0, min(x_pos, Wout - nw))
                 y_pos = max(0, min(y_pos, Hout - nh))
                 return x_pos, y_pos
 
-            def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb):
+            def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb, seg_start=start, seg_idx=i):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
                 scale = 1.0
                 pop_dur = min(0.35, dwell)
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
+                if fg_drift_zoom > 0 and fg_drift_speed > 0:
+                    phase = 2 * math.pi * fg_drift_speed * seg_start
+                    scale *= 1.0 + fg_drift_zoom * math.sin(
+                        phase + 2 * math.pi * fg_drift_speed * t
+                    )
                 x_pos, y_pos = _pos(t)
                 use_overlay = overlay
                 if scale != 1.0:
@@ -1241,7 +1360,7 @@ def make_panels_overlay_sequence(
                     y_pos += (nh - oh) // 2
                 if overlay_jitter > 0:
                     frame_idx = int(round(t * fps))
-                    rng = np.random.default_rng(frame_idx + 1337)
+                    rng = np.random.default_rng(1337 + seg_idx * 10000 + frame_idx)
                     x_pos += int(round(rng.normal(0, overlay_jitter)))
                     y_pos += int(round(rng.normal(0, overlay_jitter)))
                 if fg_shadow > 0:
@@ -1255,13 +1374,18 @@ def make_panels_overlay_sequence(
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
                 return canvas[:, :, :3]
 
-            def make_fg_mask(t, overlay=resized):
+            def make_fg_mask(t, overlay=resized, seg_start=start, seg_idx=i):
                 canvas = np.zeros((Hout, Wout, 4), dtype=np.uint8)
                 scale = 1.0
                 pop_dur = min(0.35, dwell)
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
+                if fg_drift_zoom > 0 and fg_drift_speed > 0:
+                    phase = 2 * math.pi * fg_drift_speed * seg_start
+                    scale *= 1.0 + fg_drift_zoom * math.sin(
+                        phase + 2 * math.pi * fg_drift_speed * t
+                    )
                 x_pos, y_pos = _pos(t)
                 use_overlay = overlay
                 if scale != 1.0:
@@ -1272,7 +1396,7 @@ def make_panels_overlay_sequence(
                     y_pos += (nh - oh) // 2
                 if overlay_jitter > 0:
                     frame_idx = int(round(t * fps))
-                    rng = np.random.default_rng(frame_idx + 1337)
+                    rng = np.random.default_rng(1337 + seg_idx * 10000 + frame_idx)
                     x_pos += int(round(rng.normal(0, overlay_jitter)))
                     y_pos += int(round(rng.normal(0, overlay_jitter)))
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
