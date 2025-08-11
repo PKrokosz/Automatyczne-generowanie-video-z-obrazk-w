@@ -8,3 +8,10 @@ fg_shadow: 0.22
 fg_shadow_blur: 14
 fg_shadow_offset: 4
 fg_shadow_mode: soft
+page_shadow:
+  strength: 0.25
+  blur: 12
+  offset_xy: [6, 6]
+deep_bottom_glow: 0.1
+overlay_frame_px: 5
+bg_vignette: 0.4
