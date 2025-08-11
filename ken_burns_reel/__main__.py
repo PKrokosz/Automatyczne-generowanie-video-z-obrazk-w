@@ -188,6 +188,10 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
+            bg_drift_zoom=getattr(args, "bg_drift_zoom", 0.0),
+            bg_drift_speed=getattr(args, "bg_drift_speed", 0.0),
+            fg_drift_zoom=getattr(args, "fg_drift_zoom", 0.0),
+            fg_drift_speed=getattr(args, "fg_drift_speed", 0.0),
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
@@ -597,8 +601,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.travel_ease == "ease":
         args.travel_ease = "inout"
-    if args.readability_ms < 1400:
-        parser.error("--readability-ms must be >= 1400")
+    args.readability_ms = max(args.readability_ms, 1400)
     return args
 
 
@@ -842,10 +845,10 @@ def main(argv: list[str] | None = None) -> None:
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
-            bg_drift_zoom=args.bg_drift_zoom,
-            bg_drift_speed=args.bg_drift_speed,
-            fg_drift_zoom=args.fg_drift_zoom,
-            fg_drift_speed=args.fg_drift_speed,
+            bg_drift_zoom=getattr(args, "bg_drift_zoom", 0.0),
+            bg_drift_speed=getattr(args, "bg_drift_speed", 0.0),
+            fg_drift_zoom=getattr(args, "fg_drift_zoom", 0.0),
+            fg_drift_speed=getattr(args, "fg_drift_speed", 0.0),
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
@@ -917,9 +920,16 @@ def main(argv: list[str] | None = None) -> None:
             preset=prof["preset"],
         )
     else:
+        audio_exts = {".mp3", ".wav", ".m4a"}
+        has_audio = any(
+            os.path.splitext(f)[1].lower() in audio_exts for f in os.listdir(args.folder)
+        )
+        audio_fit = args.audio_fit
+        if not has_audio and not args.audio:
+            audio_fit = "silence"
         src = make_filmstrip(
             args.folder,
-            audio_fit=args.audio_fit,
+            audio_fit=audio_fit,
             profile=args.profile,
             codec=args.codec,
             target_size=target_size,

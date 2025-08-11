@@ -1608,11 +1608,15 @@ def make_filmstrip(
         for f in os.listdir(input_folder)
         if os.path.splitext(f)[1].lower() in AUDIO_EXTS
     ]
-    if not audio_files:
-        raise FileNotFoundError("No audio file found in input folder")
-    audio_path = os.path.join(input_folder, audio_files[0])
-
-    beat_times = extract_beats(audio_path)
+    audio_path: str | None = None
+    if audio_files:
+        audio_path = os.path.join(input_folder, audio_files[0])
+        beat_times = extract_beats(audio_path)
+    else:
+        if audio_fit == "silence":
+            beat_times = [0.6 * i for i in range(len(image_files) + 1)]
+        else:
+            raise FileNotFoundError("No audio file found in input folder")
 
     clips: List[CompositeVideoClip] = []
     for i, path in enumerate(image_files):
@@ -1627,7 +1631,15 @@ def make_filmstrip(
 
     final_clip = concatenate_videoclips(clips, method="compose")
     video_duration = sum(c.duration for c in clips)
-    audio = _fit_audio_clip(audio_path, video_duration, audio_fit)
+    if audio_path:
+        audio = _fit_audio_clip(audio_path, video_duration, audio_fit)
+    else:
+        def _silence_frame(t):
+            if np.isscalar(t):
+                return np.zeros((2,), dtype=np.float32)
+            return np.zeros((len(t), 2), dtype=np.float32)
+
+        audio = AudioClip(_silence_frame, duration=video_duration, fps=44100)
     final_clip = final_clip.set_audio(audio)
     output_path = os.path.join(input_folder, "final_video.mp4")
     prof = _export_profile(profile, codec, target_size)
