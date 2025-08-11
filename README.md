@@ -15,6 +15,9 @@ Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzyst
 - Obsługa przewijania w osi X/Y z paralaksą tła.
 - Integracja z audio, przejściami i napisami generowanymi przez OCR.
 - Modularna architektura umożliwiająca modyfikację etapów przetwarzania.
+- Efekty warstwowe takie jak `page_shadow` oraz przejście `overlay_lift` z
+  animowaną podmianą panelu.
+- Możliwość ładowania presetów stylu z plików YAML (np. `styles/float_black_v1.yaml`).
 
 ## Installation
 1. Zainstaluj zależności Pythona:

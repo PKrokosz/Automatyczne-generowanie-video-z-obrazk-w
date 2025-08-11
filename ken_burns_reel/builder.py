@@ -256,9 +256,12 @@ def _paste_rgba_clipped(canvas: np.ndarray, overlay: np.ndarray, x: int, y: int)
 
     if (dst_x1 <= dst_x0) or (dst_y1 <= dst_y0):
         return
-
-    canvas[dst_y0:dst_y1, dst_x0:dst_x1, :3] = overlay[src_y0:src_y1, src_x0:src_x1, :3]
-    canvas[dst_y0:dst_y1, dst_x0:dst_x1, 3] = overlay[src_y0:src_y1, src_x0:src_x1, 3]
+    ov = overlay[src_y0:src_y1, src_x0:src_x1]
+    rgb = ov[:, :, :3].astype(np.uint16)
+    alpha = ov[:, :, 3:4].astype(np.uint16)
+    rgb = (rgb * alpha // 255).astype(np.uint8)
+    canvas[dst_y0:dst_y1, dst_x0:dst_x1, :3] = rgb
+    canvas[dst_y0:dst_y1, dst_x0:dst_x1, 3] = ov[:, :, 3]
 
 
 def _hex_to_rgb(value: str) -> Tuple[int, int, int]:

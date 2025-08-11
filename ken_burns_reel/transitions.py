@@ -7,6 +7,7 @@ import math
 import numpy as np
 import cv2
 from .utils import gaussian_blur, _set_fps
+from .layers import page_shadow
 
 
 def ease_in_out(t: float) -> float:
@@ -241,3 +242,68 @@ def smear_bg_crossfade_fg(
         CompositeVideoClip([bg_clip, fg_clip], size=size).set_duration(duration),
         fps,
     )
+
+
+def overlay_lift(
+    panel: np.ndarray,
+    duration: float,
+    lift: dict | None = None,
+    fps: int = 30,
+):
+    """Lift-in effect for overlay panels.
+
+    ``panel`` is expected in RGBA with straight alpha. The animation applies a
+    subtle scale pop, shadow growth and alpha fade-in while keeping the
+    background untouched.
+    """
+
+    if lift is None:
+        lift = {"shadow": "grow", "scale": "pop", "alpha": "fade"}
+
+    H, W = panel.shape[:2]
+
+    def paste(dst: np.ndarray, src: np.ndarray, x: int, y: int) -> None:
+        h, w = src.shape[:2]
+        dst_h, dst_w = dst.shape[:2]
+        dx0, dy0 = max(0, x), max(0, y)
+        dx1, dy1 = min(dst_w, x + w), min(dst_h, y + h)
+        sx0, sy0 = max(0, -x), max(0, -y)
+        sx1, sy1 = sx0 + (dx1 - dx0), sy0 + (dy1 - dy0)
+        if dx1 <= dx0 or dy1 <= dy0:
+            return
+        dst[dy0:dy1, dx0:dx1] = src[sy0:sy1, sx0:sx1]
+
+    def make_rgba(t: float) -> np.ndarray:
+        p = min(1.0, max(0.0, t / max(1e-6, duration)))
+        scale = 0.9 + 0.1 * ease_out(p) if lift.get("scale") else 1.0
+        alpha_f = ease_out(p) if lift.get("alpha") else 1.0
+        shadow_s = ease_out(p) if lift.get("shadow") else 0.0
+        arr = panel
+        if scale != 1.0:
+            nw = max(1, int(round(W * scale)))
+            nh = max(1, int(round(H * scale)))
+            arr = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
+        rgba = page_shadow(arr, strength=0.4 * shadow_s, blur=6, offset_xy=(6, 6))
+        rgba = rgba.astype(np.float32)
+        rgba[..., :3] *= alpha_f
+        rgba[..., 3] *= alpha_f
+        canvas = np.zeros((H, W, 4), dtype=np.float32)
+        y0 = (H - rgba.shape[0]) // 2
+        x0 = (W - rgba.shape[1]) // 2
+        paste(canvas, rgba, x0, y0)
+        return np.clip(canvas, 0, 255).astype(np.uint8)
+
+    def make_frame(t: float) -> np.ndarray:
+        return make_rgba(t)[:, :, :3]
+
+    def make_mask(t: float) -> np.ndarray:
+        return make_rgba(t)[:, :, 3] / 255.0
+
+    clip = VideoClip(make_frame, duration=duration)
+    try:
+        mask = VideoClip(make_mask, is_mask=True, duration=duration)
+        clip = clip.with_mask(mask)
+    except TypeError:
+        mask = VideoClip(make_mask, ismask=True, duration=duration)
+        clip = clip.set_mask(mask)
+    return _set_fps(clip, fps)
