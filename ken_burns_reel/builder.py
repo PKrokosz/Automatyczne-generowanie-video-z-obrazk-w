@@ -599,7 +599,7 @@ def make_panels_cam_sequence(
     fps: int = 30,
     dwell: float = 1.0,
     travel: float = 0.6,
-    xfade: float = 0.4,
+    trans_dur: float = 0.4,
     settle: float = 0.14,
     travel_ease: str = "inout",
     dwell_scale: float = 1.0,
@@ -647,7 +647,7 @@ def make_panels_cam_sequence(
     # prepare start times
     starts = [0.0]
     for i in range(1, len(clips)):
-        start = starts[i - 1] + clips[i - 1].duration - xfade
+        start = starts[i - 1] + clips[i - 1].duration - trans_dur
         if align_beat and beat_times:
             nearest = min(beat_times, key=lambda b: abs(b - start))
             delta = nearest - start
@@ -660,7 +660,7 @@ def make_panels_cam_sequence(
     for i, clip in enumerate(clips):
         clip = clip.set_start(starts[i])
         if i > 0:
-            clip = clip.crossfadein(xfade)
+            clip = clip.crossfadein(trans_dur)
         clips[i] = clip
 
     # audio fades for crossfade

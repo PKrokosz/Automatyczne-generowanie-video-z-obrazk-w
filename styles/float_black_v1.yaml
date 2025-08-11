@@ -1,0 +1,10 @@
+bg_source: page
+bg_blur: 40
+bg_tex: none
+bg_tone_strength: 0.0
+parallax_bg: 0.85
+parallax_fg: 0.08
+fg_shadow: 0.22
+fg_shadow_blur: 14
+fg_shadow_offset: 4
+fg_shadow_mode: soft
