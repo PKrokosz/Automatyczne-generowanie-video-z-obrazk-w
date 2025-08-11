@@ -94,7 +94,7 @@ Flagi pomocnicze:
 
 - `--validate` — sprawdza poprawność argumentów i kończy działanie.
 - `--deterministic` — wymusza deterministyczny wynik (użyj z `--seed`).
-- `--readability-ms` ma domyślną wartość **1400**; niższa wartość zostanie odrzucona.
+- `--readability-ms` ma domyślną wartość **1400**; niższe wartości są automatycznie podbijane do 1400.
 
 One-liner (PowerShell/Bash/CMD):
 
