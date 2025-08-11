@@ -167,8 +167,13 @@ def fg_fade(panel_clip, duration: float, ease: str = "inout", fg_offset: float =
         p = ease_fn((t + fg_offset) / max(1e-6, duration))
         return mask.get_frame(t) * (1 - p)
 
-    faded_mask = mask.with_updated_frame_function(mask_frame)
-    return panel_clip.with_mask(faded_mask)
+    if hasattr(mask, "with_updated_frame_function"):
+        faded_mask = mask.with_updated_frame_function(mask_frame)
+    else:  # moviepy <2
+        faded_mask = mask.fl(lambda gf, t: mask_frame(t))
+    if hasattr(panel_clip, "with_mask"):
+        return panel_clip.with_mask(faded_mask)
+    return panel_clip.set_mask(faded_mask)
 
 
 def smear_bg_crossfade_fg(

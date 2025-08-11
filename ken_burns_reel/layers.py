@@ -10,6 +10,7 @@ import hashlib
 
 # simple in-memory cache for page effects
 _SHADOW_CACHE: Dict[Tuple[str, float, int, Tuple[int, int]], np.ndarray] = {}
+_SHADOW_STATS = {"hits": 0, "misses": 0}
 
 
 def _premultiply(arr: np.ndarray) -> np.ndarray:
@@ -50,7 +51,9 @@ def page_shadow(
     key_hash = hashlib.sha1(src.tobytes()).hexdigest()
     key = (key_hash, float(strength), int(blur), tuple(offset_xy))
     if key in _SHADOW_CACHE:
+        _SHADOW_STATS["hits"] += 1
         return _SHADOW_CACHE[key].copy()
+    _SHADOW_STATS["misses"] += 1
 
     ox, oy = offset_xy
     pad_l = max(blur - min(0, ox), 0)
@@ -70,3 +73,8 @@ def page_shadow(
 
     _SHADOW_CACHE[key] = canvas
     return canvas.copy()
+
+
+def shadow_cache_stats() -> Tuple[int, int]:
+    """Return ``(hits, misses)`` for page shadow cache."""
+    return _SHADOW_STATS["hits"], _SHADOW_STATS["misses"]
