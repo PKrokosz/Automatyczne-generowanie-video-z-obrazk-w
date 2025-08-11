@@ -153,6 +153,7 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             overlay_frame_color=args.overlay_frame_color,
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
+            seed=args.seed,
             bg_drift_zoom=args.bg_drift_zoom,
             bg_drift_speed=args.bg_drift_speed,
             fg_drift_zoom=args.fg_drift_zoom,
@@ -468,6 +469,7 @@ def main() -> None:
     parser.add_argument("--overlay-frame-color", default="#000000", help="Kolor ramki overlay w formacie #RRGGBB")
     parser.add_argument("--bg-offset", type=float, default=0.0, help="Opóźnienie ruchu tła (s)")
     parser.add_argument("--fg-offset", type=float, default=0.0, help="Opóźnienie ruchu panelu (s)")
+    parser.add_argument("--seed", type=int, default=0, help="Seed deterministycznego driftu")
     parser.add_argument("--bg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu tła")
     parser.add_argument("--bg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu tła (Hz)")
     parser.add_argument("--fg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu panelu")

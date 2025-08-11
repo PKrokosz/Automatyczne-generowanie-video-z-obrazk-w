@@ -50,12 +50,16 @@ from .transitions import (
     whip_pan_transition,
     smear_bg_crossfade_fg,
 )
+from . import motion
 
 # Panel camera imports
 import numpy as np
 from .panels import detect_panels, order_panels_lr_tb, alpha_bbox
 import cv2
 from .utils import gaussian_blur, _set_fps
+
+
+SOFT_SNAP_MAX = 0.065
 
 
 def _fit_audio_clip(path: str, duration: float, mode: str, gain_db: float = 0.0) -> AudioFileClip:
@@ -833,6 +837,7 @@ def make_panels_overlay_sequence(
     overlay_frame_color: str = "#000000",
     bg_offset: float = 0.0,
     fg_offset: float = 0.0,
+    seed: int = 0,
     bg_drift_zoom: float = 0.0,
     bg_drift_speed: float = 0.0,
     fg_drift_zoom: float = 0.0,
@@ -949,7 +954,7 @@ def make_panels_overlay_sequence(
                 continue
             nearest = min(beat_times, key=lambda b: abs(b - start))
             delta = nearest - start
-            if abs(delta) <= 0.08 and d - delta >= max(0.2, readability_ms / 1000.0):
+            if abs(delta) <= SOFT_SNAP_MAX and d - delta >= max(0.2, readability_ms / 1000.0):
                 start = nearest
                 if delta > 0:
                     d = d - delta
@@ -1003,6 +1008,7 @@ def make_panels_overlay_sequence(
 
     for i, it in enumerate(items):
         s = seg_timings[i]
+        seg_seed = seed + i
         start, dwell, travel, settle = s.start, s.dwell, s.travel, s.settle
         page_arr = it["page"]
         panel_arr = it["panel_arr"]
@@ -1024,7 +1030,7 @@ def make_panels_overlay_sequence(
         else:
             left1, top1 = left0, top0
 
-        def make_bg(t, arr=page_arr, l0=left0, t0=top0, l1=left1, t1=top1, seg_start=start):
+        def make_bg(t, arr=page_arr, l0=left0, t0=top0, l1=left1, t1=top1, seg_start=start, seg_seed=seg_seed):
             if bg_source == "page":
                 tt = t - bg_offset
                 if tt <= dwell:
@@ -1032,23 +1038,25 @@ def make_panels_overlay_sequence(
                 else:
                     p = (tt - dwell) / max(1e-6, travel)
                     p = ease_fn(p)
-                    l = l0 + parallax_bg * (l1 - l0) * p
-                    tp = t0 + parallax_bg * (t1 - t0) * p
                     if travel_path == "arc":
-                        dx = l1 - l0
-                        dy = t1 - t0
-                        dist = math.hypot(dx, dy)
-                        if dist > 1e-6:
-                            px, py = -dy / dist, dx / dist
-                            off = math.sin(math.pi * p) * dist * 0.25 * parallax_bg
-                            l += px * off
-                            tp += py * off
+                        end = (
+                            l0 + parallax_bg * (l1 - l0),
+                            t0 + parallax_bg * (t1 - t0),
+                        )
+                        l, tp = motion.arc_path((l0, t0), end, p, strength=0.25 * parallax_bg)
+                    else:
+                        l = l0 + parallax_bg * (l1 - l0) * p
+                        tp = t0 + parallax_bg * (t1 - t0) * p
                 l = int(max(0, min(l, Wpage - win_w)))
                 tp = int(max(0, min(tp, Hpage - win_h)))
                 crop = arr[tp : tp + win_h, l : l + win_w]
                 frame_raw = cv2.resize(crop, (Wout, Hout), interpolation=cv2.INTER_CUBIC)
                 if bg_blur > 0:
                     frame_raw = cv2.GaussianBlur(frame_raw, (0, 0), bg_blur)
+                total = dwell + travel + settle
+                prog = min(max((t - seg_start) / max(1e-6, total), 0.0), 1.0)
+                zoom, dx_d, dy_d, rot_d = motion.subtle_drift("bg", seg_seed, prog)
+                frame_raw = motion.apply_transform(frame_raw, zoom, dx_d, dy_d, rot_d)
                 mid = frame_raw
                 if page_desaturate > 0 or page_dim > 0:
                     hsv = cv2.cvtColor(mid, cv2.COLOR_RGB2HSV).astype(np.float32)
@@ -1167,17 +1175,15 @@ def make_panels_overlay_sequence(
                 else:
                     p = (tt - dwell) / max(1e-6, travel)
                     p = ease_fn(p)
-                    l = left0 + parallax_bg * (left1 - left0) * p
-                    tp = top0 + parallax_bg * (top1 - top0) * p
                     if travel_path == "arc":
-                        dx = left1 - left0
-                        dy = top1 - top0
-                        dist = math.hypot(dx, dy)
-                        if dist > 1e-6:
-                            px, py = -dy / dist, dx / dist
-                            off = math.sin(math.pi * p) * dist * 0.25 * parallax_bg
-                            l += px * off
-                            tp += py * off
+                        end = (
+                            left0 + parallax_bg * (left1 - left0),
+                            top0 + parallax_bg * (top1 - top0),
+                        )
+                        l, tp = motion.arc_path((left0, top0), end, p, strength=0.25 * parallax_bg)
+                    else:
+                        l = left0 + parallax_bg * (left1 - left0) * p
+                        tp = top0 + parallax_bg * (top1 - top0) * p
                 nat_cx = (x + w / 2 - l) / win_w * Wout
                 nat_cy = (y + h / 2 - tp) / win_h * Hout
                 cam_dx = (l - left0) / win_w * Wout
@@ -1195,17 +1201,19 @@ def make_panels_overlay_sequence(
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
-                if fg_drift_zoom > 0 and fg_drift_speed > 0:
-                    phase = 2 * math.pi * fg_drift_speed * seg_start
-                    scale *= 1.0 + fg_drift_zoom * math.sin(
-                        phase + 2 * math.pi * fg_drift_speed * t
-                    )
+                total = dwell + travel + settle
+                prog = min(max((t - start) / max(1e-6, total), 0.0), 1.0)
+                dz, dx_d, dy_d, rot_d = motion.subtle_drift("fg", seg_seed, prog)
+                scale *= dz
                 x_pos, y_pos = _pos(t)
+                x_pos += int(round(dx_d * dst_w))
+                y_pos += int(round(dy_d * dst_h))
                 use_overlay = overlay
-                if scale != 1.0:
+                if scale != 1.0 or rot_d != 0.0:
                     ow = max(1, int(round(dst_w * scale)))
                     oh = max(1, int(round(dst_h * scale)))
                     use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    use_overlay = motion.apply_transform(use_overlay, 1.0, 0.0, 0.0, rot_d)
                     x_pos += (dst_w - ow) // 2
                     y_pos += (dst_h - oh) // 2
                 if overlay_jitter > 0:
@@ -1231,17 +1239,19 @@ def make_panels_overlay_sequence(
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
-                if fg_drift_zoom > 0 and fg_drift_speed > 0:
-                    phase = 2 * math.pi * fg_drift_speed * seg_start
-                    scale *= 1.0 + fg_drift_zoom * math.sin(
-                        phase + 2 * math.pi * fg_drift_speed * t
-                    )
+                total = dwell + travel + settle
+                prog = min(max((t - start) / max(1e-6, total), 0.0), 1.0)
+                dz, dx_d, dy_d, rot_d = motion.subtle_drift("fg", seg_seed, prog)
+                scale *= dz
                 x_pos, y_pos = _pos(t)
+                x_pos += int(round(dx_d * dst_w))
+                y_pos += int(round(dy_d * dst_h))
                 use_overlay = overlay
-                if scale != 1.0:
+                if scale != 1.0 or rot_d != 0.0:
                     ow = max(1, int(round(dst_w * scale)))
                     oh = max(1, int(round(dst_h * scale)))
                     use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    use_overlay = motion.apply_transform(use_overlay, 1.0, 0.0, 0.0, rot_d)
                     x_pos += (dst_w - ow) // 2
                     y_pos += (dst_h - oh) // 2
                 if overlay_jitter > 0:
@@ -1345,17 +1355,19 @@ def make_panels_overlay_sequence(
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
-                if fg_drift_zoom > 0 and fg_drift_speed > 0:
-                    phase = 2 * math.pi * fg_drift_speed * seg_start
-                    scale *= 1.0 + fg_drift_zoom * math.sin(
-                        phase + 2 * math.pi * fg_drift_speed * t
-                    )
+                total = dwell + travel + settle
+                prog = min(max((t - start) / max(1e-6, total), 0.0), 1.0)
+                dz, dx_d, dy_d, rot_d = motion.subtle_drift("fg", seg_seed, prog)
+                scale *= dz
                 x_pos, y_pos = _pos(t)
+                x_pos += int(round(dx_d * nw))
+                y_pos += int(round(dy_d * nh))
                 use_overlay = overlay
-                if scale != 1.0:
+                if scale != 1.0 or rot_d != 0.0:
                     ow = max(1, int(round(nw * scale)))
                     oh = max(1, int(round(nh * scale)))
                     use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    use_overlay = motion.apply_transform(use_overlay, 1.0, 0.0, 0.0, rot_d)
                     x_pos += (nw - ow) // 2
                     y_pos += (nh - oh) // 2
                 if overlay_jitter > 0:
@@ -1381,17 +1393,19 @@ def make_panels_overlay_sequence(
                 if overlay_pop < 1.0 and t < pop_dur:
                     p = 0.5 - 0.5 * math.cos(math.pi * t / pop_dur)
                     scale = overlay_pop + (1 - overlay_pop) * p
-                if fg_drift_zoom > 0 and fg_drift_speed > 0:
-                    phase = 2 * math.pi * fg_drift_speed * seg_start
-                    scale *= 1.0 + fg_drift_zoom * math.sin(
-                        phase + 2 * math.pi * fg_drift_speed * t
-                    )
+                total = dwell + travel + settle
+                prog = min(max((t - start) / max(1e-6, total), 0.0), 1.0)
+                dz, dx_d, dy_d, rot_d = motion.subtle_drift("fg", seg_seed, prog)
+                scale *= dz
                 x_pos, y_pos = _pos(t)
+                x_pos += int(round(dx_d * nw))
+                y_pos += int(round(dy_d * nh))
                 use_overlay = overlay
-                if scale != 1.0:
+                if scale != 1.0 or rot_d != 0.0:
                     ow = max(1, int(round(nw * scale)))
                     oh = max(1, int(round(nh * scale)))
                     use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
+                    use_overlay = motion.apply_transform(use_overlay, 1.0, 0.0, 0.0, rot_d)
                     x_pos += (nw - ow) // 2
                     y_pos += (nh - oh) // 2
                 if overlay_jitter > 0:
