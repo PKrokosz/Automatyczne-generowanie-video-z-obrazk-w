@@ -16,6 +16,13 @@ Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzyst
 - Integracja z audio, przejściami i napisami generowanymi przez OCR.
 - Modularna architektura umożliwiająca modyfikację etapów przetwarzania.
 
+## Kolor
+Ścieżka przetwarzania zachowuje stałą konwersję sRGB → linear → sRGB przy
+użyciu 16‑bitowej precyzji.  Pomaga to zminimalizować dryf barw i zapewnia
+powtarzalne wyniki.  Funkcje pomocnicze znajdują się w module
+`ken_burns_reel.color` i są objęte testem "color‑lock" porównującym
+histogramy kanałów.
+
 ## Installation
 1. Zainstaluj zależności Pythona:
    ```bash
