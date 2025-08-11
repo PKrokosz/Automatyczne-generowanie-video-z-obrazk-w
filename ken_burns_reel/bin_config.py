@@ -1,9 +1,8 @@
 """Helpers to resolve external binary paths.
 
 This module centralizes discovery of ImageMagick and Tesseract executables
-without requiring hard coded paths. Resolution order follows CLI arguments,
-environment variables, existing library configuration and finally a search on
-``PATH``.
+without requiring hard coded paths. ImageMagick detection honors an explicit
+CLI argument, environment variables and finally a search on ``PATH``.
 """
 from __future__ import annotations
 
@@ -11,7 +10,6 @@ import os
 import shutil
 from typing import Optional
 
-import moviepy.config as mpyconf
 import pytesseract
 
 
@@ -30,25 +28,19 @@ def resolve_imagemagick(cli_path: str | None = None) -> Optional[str]:
     Resolution order:
     1. explicit ``cli_path`` argument (e.g. ``--magick``)
     2. ``IMAGEMAGICK_BINARY`` environment variable
-    3. MoviePy configuration
-    4. ``magick`` discovered on ``PATH``
-    The returned path is validated and applied to MoviePy configuration and
-    ``os.environ``. Returns ``None`` if no candidate is found.
+    3. ``magick`` discovered on ``PATH``
+    The returned path is validated and stored in ``os.environ``. Returns
+    ``None`` if no candidate is found.
     """
     candidates = [
         cli_path,
         os.environ.get("IMAGEMAGICK_BINARY"),
-        getattr(mpyconf, "IMAGEMAGICK_BINARY", None),
         shutil.which("magick"),
     ]
     for cand in candidates:
         path = _validate_binary(cand)
         if path:
             os.environ["IMAGEMAGICK_BINARY"] = path
-            try:
-                mpyconf.change_settings({"IMAGEMAGICK_BINARY": path})
-            except Exception:
-                pass
             return path
     return None
 
