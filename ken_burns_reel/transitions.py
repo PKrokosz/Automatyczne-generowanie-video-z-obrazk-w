@@ -149,6 +149,27 @@ def whip_pan_transition(
     return _set_fps(VideoClip(make_frame, duration=duration), fps)
 
 
+def fg_fade(panel_clip, duration: float, ease: str = "inout", fg_offset: float = 0.0):
+    """Fade only the foreground alpha of ``panel_clip``.
+
+    The background remains unchanged; only the mask (alpha) channel of the
+    panel clip is attenuated. ``fg_offset`` allows shifting the fade in time to
+    honour foreground offsets during transitions.
+    """
+
+    ease_fn = _get_ease_fn(ease)
+    if panel_clip.mask is None:
+        panel_clip = panel_clip.add_mask()
+    mask = panel_clip.mask
+
+    def mask_frame(t):
+        p = ease_fn((t + fg_offset) / max(1e-6, duration))
+        return mask.get_frame(t) * (1 - p)
+
+    faded_mask = mask.with_updated_frame_function(mask_frame)
+    return panel_clip.with_mask(faded_mask)
+
+
 def smear_bg_crossfade_fg(
     tail_bg,
     head_bg,
@@ -162,6 +183,8 @@ def smear_bg_crossfade_fg(
     fps: int = 30,
     bg_brightness_dip: float = 0.0,
     steps_auto: bool = False,
+    bg_offset: float = 0.0,
+    fg_offset: float = 0.0,
 ):
     """Smear transition for backgrounds with foreground crossfade."""
 
@@ -169,10 +192,14 @@ def smear_bg_crossfade_fg(
     if steps_auto:
         steps = max(8, int(min(W, H) / 160))
     dip = max(0.0, min(0.15, bg_brightness_dip))
-    tbg = tail_bg.subclip(tail_bg.duration - duration, tail_bg.duration)
-    hbg = head_bg.subclip(0, duration)
-    tfg = tail_fg.subclip(tail_fg.duration - duration, tail_fg.duration)
-    hfg = head_fg.subclip(0, duration)
+    tbg = tail_bg.subclip(
+        max(0, tail_bg.duration - duration - bg_offset), tail_bg.duration - bg_offset
+    )
+    hbg = head_bg.subclip(bg_offset, bg_offset + duration)
+    tfg = tail_fg.subclip(
+        max(0, tail_fg.duration - duration - fg_offset), tail_fg.duration - fg_offset
+    )
+    hfg = head_fg.subclip(fg_offset, fg_offset + duration)
     dx, dy = vec
 
     def make_bg(t):

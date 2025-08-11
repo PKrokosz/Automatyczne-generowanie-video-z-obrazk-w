@@ -42,6 +42,12 @@ python -m ken_burns_reel . --mode panels \
 
 Szczegółowe przykłady CLI znajdują się w [docs/cli_examples.md](docs/cli_examples.md).
 
+One-liner (PowerShell/Bash/CMD):
+
+```
+python -m ken_burns_reel.cli --trans fg-fade --transition-duration 0.3 input_folder
+```
+
 ## Tests
 ```bash
 pytest tests/
