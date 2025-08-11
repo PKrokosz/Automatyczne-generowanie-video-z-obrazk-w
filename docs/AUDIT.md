@@ -11,7 +11,7 @@
   Wywołuje `extract_beats`, `extract_caption`, `detect_focus_point`, `overlay_caption`.
 
 ### `ken_burns_reel/config.py`
-- Konfiguracja środowiska (`IMAGEMAGICK_BINARY`, `tesseract_cmd`). Definiuje rozszerzenia `IMAGE_EXTS`, `AUDIO_EXTS`.
+- Definiuje rozszerzenia `IMAGE_EXTS`, `AUDIO_EXTS`.
 
 ### `ken_burns_reel/focus.py`
 - `detect_focus_point(img: Image.Image) -> Tuple[int, int]` – detekcja twarzy (`opencv`) lub centroid jasności (`numpy`).

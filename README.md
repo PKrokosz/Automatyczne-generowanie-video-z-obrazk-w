@@ -144,7 +144,6 @@ lewitujących paneli. Przydatne flagi:
 
 ```
 ken_burns_scroll_audio.py      # Skrypt CLI do generowania wideo ze skrolowaniem i audio
-moviepy_config_defaults.py     # Domyślne ustawienia MoviePy
 ken_burns_reel/
  ├── __main__.py                # Główny punkt wejścia pakietu
  ├── __init__.py
@@ -189,7 +188,7 @@ pip install -e .
 
 1. Parametry CLI `--magick` / `--tesseract`.
 2. Zmienne środowiskowe `IMAGEMAGICK_BINARY` / `TESSERACT_BINARY`.
-3. Ustawienia bibliotek (MoviePy, pytesseract).
+3. Dla Tesseract: `pytesseract.pytesseract.tesseract_cmd`.
 4. Wyszukanie w `PATH` systemowym.
 
 Jeśli narzędzie nie zostanie znalezione, napisy/OCR mogą zostać pominięte.
