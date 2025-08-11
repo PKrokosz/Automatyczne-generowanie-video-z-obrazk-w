@@ -31,6 +31,16 @@ python -m ken_burns_reel . --mode panels ^
   --profile social
 ```
 
+## Custom output path
+
+Use `--output` to choose a file name or target directory. Existing paths are
+auto-suffixed with a timestamp or counter to avoid overwriting.
+
+```bash
+python -m ken_burns_reel . --mode panels --output out/
+python -m ken_burns_reel . --mode panels --output "out/custom.mp4"
+```
+
 ## One-click mode
 
 **PowerShell**
