@@ -103,6 +103,9 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
         elif args.align_beat and not audio_path:
             print("⚠️ Nie znaleziono pliku audio – wideo bez wyrównania do beatów.")
             args.align_beat = False
+        overlay_scale = args.overlay_scale if args.overlay_scale is not None else 1.6
+        overlay_fit = args.overlay_fit if args.overlay_fit is not None else 0.7
+        overlay_mode = args.overlay_mode or "anchored"
 
         clip = make_panels_overlay_sequence(
             page_paths,
@@ -114,9 +117,9 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             travel_ease="inout",
             align_beat=args.align_beat,
             beat_times=beat_times,
-            overlay_fit=args.overlay_fit,
-            overlay_mode=args.overlay_mode,
-            overlay_scale=args.overlay_scale,
+            overlay_fit=overlay_fit,
+            overlay_mode=overlay_mode,
+            overlay_scale=overlay_scale,
             bg_source="page",
             bg_blur=args.bg_blur,
             bg_tex=args.bg_tex,
