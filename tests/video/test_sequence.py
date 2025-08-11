@@ -19,7 +19,7 @@ def test_align_beat_snaps_start(tmp_path):
         [str(img1), str(img2)],
         target_size=(64, 64),
         fps=30,
-        xfade=0.0,
+        trans_dur=0.0,
         align_beat=True,
         beat_times=beats,
     )
@@ -27,7 +27,7 @@ def test_align_beat_snaps_start(tmp_path):
         [str(img1), str(img2)],
         target_size=(64, 64),
         fps=30,
-        xfade=0.0,
+        trans_dur=0.0,
         align_beat=False,
     )
     start_aligned = clip.clips[1].start
