@@ -13,12 +13,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Ken Burns Reel helper CLI")
     parser.add_argument("--trans", default="none", help="Transition type")
     parser.add_argument(
-        "--trans-dur",
         "--transition-duration",
         dest="trans_dur",
         type=float,
         default=0.0,
         help="Transition duration in seconds",
+    )
+    parser.add_argument(
+        "--trans-dur",
+        dest="trans_dur",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--fg-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
@@ -41,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
 def validate_args(args: argparse.Namespace) -> list[str]:
     errors: list[str] = []
     if args.trans_dur < 0:
-        errors.append("--trans-dur must be >= 0")
+        errors.append("--transition-duration must be >= 0")
     if args.bg_offset and args.fg_offset:
         errors.append("conflict: --bg-offset with --fg-offset")
     if args.min_read < 1.4:

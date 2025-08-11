@@ -45,6 +45,8 @@ histogramy kanałów.
    Na Windows upewnij się, że katalog ImageMagick zawiera `colors.xml`, a `tesseract.exe` znajduje się w `PATH`.
 
 ## Usage
+
+### Renderowanie
 ```bash
 python -m ken_burns_reel . --mode panels \
   --bg-mode blur --page-scale 0.94 --bg-parallax 0.85 \
@@ -83,6 +85,11 @@ python -m ken_burns_reel two_pages ^
 
 Szczegółowe przykłady CLI znajdują się w [docs/cli_examples.md](docs/cli_examples.md).
 
+
+### Walidacja / utility CLI
+Helper do walidacji i eksperymentów jest wystawiony jako
+`ken_burns_reel.cli`:
+
 Flagi pomocnicze:
 
 - `--validate` — sprawdza poprawność argumentów i kończy działanie.
@@ -90,6 +97,7 @@ Flagi pomocnicze:
 - `--readability-ms` ma domyślną wartość **1400**; niższa wartość zostanie odrzucona.
 
 One-liner (PowerShell/Bash/CMD):
+
 
 ```
 python -m ken_burns_reel.cli --trans fg-fade --transition-duration 0.3 input_folder
