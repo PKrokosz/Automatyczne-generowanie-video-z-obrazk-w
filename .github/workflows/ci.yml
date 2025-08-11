@@ -7,12 +7,12 @@ on:
 
 permissions:
   contents: read
-  pages: write          # tylko dla joba 'pages'
-  id-token: write       # tylko dla joba 'pages'
+  pages: write
+  id-token: write
 
 env:
   PYTHONUNBUFFERED: "1"
-  MPLBACKEND: "Agg"     # bez X‑a, gdy coś użyje matplotliba
+  MPLBACKEND: "Agg"
 
 jobs:
   lint:
@@ -26,13 +26,12 @@ jobs:
       - name: Install lint deps
         run: |
           python -m pip install -U pip wheel
-          pip install ruff mypy
+          pip install ruff mypy types-PyYAML
       - name: Ruff
         run: ruff check .
         continue-on-error: true
       - name: Mypy
-        run: mypy .
-        continue-on-error: true
+        run: mypy . --install-types --non-interactive || true
 
   tests:
     runs-on: ubuntu-latest
@@ -54,14 +53,13 @@ jobs:
         run: |
           python -m pip install -U pip wheel
           pip install -e ".[dev,test]" || true
-          pip install numpy moviepy pillow imageio imageio-ffmpeg 
+          pip install numpy moviepy pillow imageio imageio-ffmpeg
           pip install opencv-python-headless PyYAML pytesseract librosa soundfile
           pip install pytest pytest-cov genbadge[all]
 
       - name: Smoke import
         run: |
           python - <<'PY'
-          import sys
           import numpy, moviepy, PIL, imageio
           print("OK:", numpy.__version__, moviepy.__version__, PIL.__version__)
           PY
@@ -78,7 +76,7 @@ jobs:
             --cov-report=html
 
       - name: Generate coverage badge (SVG)
-        if: success()   # tylko gdy testy przeszły
+        if: success()
         run: genbadge coverage -i coverage.xml -o coverage-badge.svg
 
       - name: Upload test artifacts
