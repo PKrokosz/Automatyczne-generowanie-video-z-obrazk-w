@@ -239,12 +239,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
     parser.add_argument(
         "--transition-duration",
-        "--trans-dur",
-        "--xfade",
         dest="trans_dur",
         type=float,
         default=0.3,
         help="Długość przejścia/crossfadu między panelami (s)",
+    )
+    parser.add_argument(
+        "--trans-dur",
+        dest="trans_dur",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--xfade",
+        dest="trans_dur",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--settle", type=float, default=0.14, help="Długość micro-holdu (s)")
     parser.add_argument(

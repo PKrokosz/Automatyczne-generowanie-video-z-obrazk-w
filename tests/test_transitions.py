@@ -2,7 +2,7 @@ import numpy as np
 
 try:
     from moviepy import ColorClip, CompositeVideoClip
-except ModuleNotFoundError:  # pragma: no cover
+except (ModuleNotFoundError, ImportError):  # pragma: no cover
     from moviepy.editor import ColorClip, CompositeVideoClip
 
 from ken_burns_reel.transitions import fg_fade, _get_ease_fn
