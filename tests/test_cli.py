@@ -18,7 +18,12 @@ def test_preset_overrides_flags(tmp_path):
 
 def test_validate_blocks_negative_times(capsys):
     with pytest.raises(SystemExit):
-        cli.main(["--validate", "--trans-dur", "-1"])
+        cli.main(["--validate", "--transition-duration", "-1"])
     err = capsys.readouterr().err
-    assert "--trans-dur" in err
+    assert "--transition-duration" in err
+
+
+def test_trans_dur_alias_still_works(tmp_path):
+    args = parse_args([str(tmp_path), "--trans-dur", "0.5"])
+    assert args.trans_dur == 0.5
 

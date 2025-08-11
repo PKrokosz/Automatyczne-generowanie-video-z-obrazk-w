@@ -4,8 +4,10 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import random
 import sys
 
+import numpy as np
 import yaml
 
 from .bin_config import resolve_imagemagick, resolve_tesseract
@@ -159,10 +161,6 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
-            bg_drift_zoom=args.bg_drift_zoom,
-            bg_drift_speed=args.bg_drift_speed,
-            fg_drift_zoom=args.fg_drift_zoom,
-            fg_drift_speed=args.fg_drift_speed,
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
@@ -207,6 +205,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--magick", help="Path to ImageMagick binary")
     parser.add_argument("--export-panels", help="Export detected panels to folder")
     parser.add_argument("--oneclick", action="store_true", help="Tryb one-click: auto video from pages and audio")
+    parser.add_argument("--validate", action="store_true", help="Validate arguments and exit")
+    parser.add_argument("--deterministic", action="store_true", help="Force deterministic build")
     parser.add_argument(
         "--export-mode",
         choices=["rect", "mask"],
@@ -250,12 +250,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
     parser.add_argument(
         "--transition-duration",
-        "--trans-dur",
-        "--xfade",
         dest="trans_dur",
         type=float,
         default=0.3,
         help="Długość przejścia/crossfadu między panelami (s)",
+    )
+    parser.add_argument(
+        "--trans-dur",
+        dest="trans_dur",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--xfade",
+        dest="trans_dur",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--settle", type=float, default=0.14, help="Długość micro-holdu (s)")
     parser.add_argument(
@@ -474,7 +486,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bpm", type=int, help="Ustaw tempo utworu (beats per minute)")
     parser.add_argument("--beats-per-panel", type=float, default=2.0, help="Ile beatów na panel")
     parser.add_argument("--beats-travel", type=float, default=0.5, help="Ile beatów przejazdu")
-    parser.add_argument("--readability-ms", type=int, default=900, help="Minimalna ekspozycja panelu (ms)")
+    parser.add_argument(
+        "--readability-ms",
+        type=int,
+        default=1400,
+        help="Minimalna ekspozycja panelu (ms)",
+    )
     parser.add_argument("--min-dwell", type=float, default=1.0, help="Minimalny czas zatrzymania (s)")
     parser.add_argument("--max-dwell", type=float, default=1.8, help="Maksymalny czas zatrzymania (s)")
     parser.add_argument("--settle-min", type=float, default=0.12, help="Minimalny czas settle (s)")
@@ -487,10 +504,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bg-offset", type=float, default=0.0, help="Opóźnienie ruchu tła (s)")
     parser.add_argument("--fg-offset", type=float, default=0.0, help="Opóźnienie ruchu panelu (s)")
     parser.add_argument("--seed", type=int, default=0, help="Seed deterministycznego driftu")
-    parser.add_argument("--bg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu tła")
-    parser.add_argument("--bg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu tła (Hz)")
-    parser.add_argument("--fg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu panelu")
-    parser.add_argument("--fg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu panelu (Hz)")
     parser.add_argument("--travel-path", choices=["linear", "arc"], default="linear", help="Tor przejazdu kamery")
     parser.add_argument("--deep-bottom-glow", type=float, default=0.0, help="Poświata od dołu (0..1)")
     parser.add_argument("--page-scale-overlay", type=_page_scale_type, default=1.0, help="Skala strony przy overlay")
@@ -553,11 +566,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.travel_ease == "ease":
         args.travel_ease = "inout"
+    if args.readability_ms < 1400:
+        parser.error("--readability-ms must be >= 1400")
     return args
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.deterministic:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        logging.info("deterministic build seed=%s", args.seed)
+    if args.validate:
+        return
     target_size = (1080, 1920)
     if args.size:
         try:

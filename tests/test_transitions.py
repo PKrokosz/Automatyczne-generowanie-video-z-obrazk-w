@@ -21,10 +21,12 @@ def _set_opacity(clip, opacity):
 
 
 def test_fg_fade_keeps_background():
+
     bg = _set_fps(_set_duration(ColorClip(size=(4, 4), color=(0, 0, 0)), 1), 1)
     fg = _set_opacity(
         _set_fps(_set_duration(ColorClip(size=(4, 4), color=(255, 0, 0)), 1), 1),
         1,
+
     )
     faded = fg_fade(fg, 1)
     comp = CompositeVideoClip([bg, faded])

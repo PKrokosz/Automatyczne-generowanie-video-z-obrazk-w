@@ -841,10 +841,6 @@ def make_panels_overlay_sequence(
     bg_offset: float = 0.0,
     fg_offset: float = 0.0,
     seed: int = 0,
-    bg_drift_zoom: float = 0.0,
-    bg_drift_speed: float = 0.0,
-    fg_drift_zoom: float = 0.0,
-    fg_drift_speed: float = 0.0,
     travel_path: str = "linear",
     deep_bottom_glow: float = 0.0,
     look: str = "none",
@@ -1106,10 +1102,6 @@ def make_panels_overlay_sequence(
                 frame = cv2.addWeighted(deep, 0.25, frame, 0.75, 0)
             if look == "witcher1":
                 frame = _apply_witcher_look(frame, bg_vignette)
-            if bg_drift_zoom > 0 and bg_drift_speed > 0:
-                phase = 2 * math.pi * bg_drift_speed * seg_start
-                scale = 1.0 + bg_drift_zoom * math.sin(phase + 2 * math.pi * bg_drift_speed * t)
-                frame = _zoom_image_center(frame, scale)
             if deep_bottom_glow > 0:
                 grad = np.linspace(1.0, 1.0 + deep_bottom_glow, Hout, dtype=np.float32)[:, None]
                 frame = np.clip(frame.astype(np.float32) * grad[..., None], 0, 255).astype(np.uint8)
@@ -1334,17 +1326,13 @@ def make_panels_overlay_sequence(
                 if tt > dwell:
                     p = (tt - dwell) / max(1e-6, travel)
                     p = ease_fn(p)
-                    offx = (cx1 - cx0) * parallax_fg * p * scale_x
-                    offy = (cy1 - cy0) * parallax_fg * p * scale_y
                     if travel_path == "arc":
-                        dx = (cx1 - cx0) * scale_x
-                        dy = (cy1 - cy0) * scale_y
-                        dist = math.hypot(dx, dy)
-                        if dist > 1e-6:
-                            px, py = -dy / dist, dx / dist
-                            off = math.sin(math.pi * p) * dist * 0.25 * parallax_fg
-                            offx += px * off
-                            offy += py * off
+                        camx, camy = motion.arc_path((cx0, cy0), (cx1, cy1), p, strength=0.25)
+                    else:
+                        camx = cx0 + (cx1 - cx0) * p
+                        camy = cy0 + (cy1 - cy0) * p
+                    offx = (camx - cx0) * parallax_fg * scale_x
+                    offy = (camy - cy0) * parallax_fg * scale_y
                 x_pos = int(round(xb + offx))
                 y_pos = int(round(yb + offy))
                 x_pos = max(0, min(x_pos, Wout - nw))
@@ -1472,6 +1460,22 @@ def make_panels_overlay_sequence(
                     fps=fps,
                     bg_offset=bg_offset,
                     fg_offset=fg_offset,
+                )
+            elif trans == "fg-fade":
+                from .transitions import fg_fade
+
+                tbg = tail_bg.subclip(seg_dur, seg_dur + trans_dur)
+                tfg = tail_fg.subclip(seg_dur, seg_dur + trans_dur)
+                hfg = fg_clips[i + 1].subclip(0, trans_dur)
+                tfg_faded = fg_fade(tfg, duration=trans_dur, fg_offset=fg_offset)
+                hfg_in = fg_fade(
+                    hfg, duration=trans_dur, fg_offset=fg_offset
+                ).fx(lambda c: c.invert_mask())
+                tclip = _set_fps(
+                    CompositeVideoClip(
+                        [tbg, tfg_faded, hfg_in], size=target_size
+                    ),
+                    fps,
                 )
             elif trans == "whip":
                 bg_t = whip_pan_transition(
