@@ -149,6 +149,16 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             bg_vignette=args.bg_vignette,
             overlay_pop=args.overlay_pop,
             overlay_jitter=args.overlay_jitter,
+            overlay_frame_px=args.overlay_frame_px,
+            overlay_frame_color=args.overlay_frame_color,
+            bg_offset=args.bg_offset,
+            fg_offset=args.fg_offset,
+            bg_drift_zoom=args.bg_drift_zoom,
+            bg_drift_speed=args.bg_drift_speed,
+            fg_drift_zoom=args.fg_drift_zoom,
+            fg_drift_speed=args.fg_drift_speed,
+            travel_path=args.travel_path,
+            deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
             limit_items=args.limit_items,
             trans="smear",
@@ -454,6 +464,16 @@ def main() -> None:
     parser.add_argument("--quantize", choices=["off", "1/8", "1/4"], default="off", help="Przyciągaj starty do siatki nut")
     parser.add_argument("--overlay-pop", "--pop-scale", dest="overlay_pop", type=float, default=1.0, help="Początkowa skala overlay dla efektu pop-in")
     parser.add_argument("--overlay-jitter", "--jitter", dest="overlay_jitter", type=float, default=0.0, help="Subtelny mikro-ruch overlay (px)")
+    parser.add_argument("--overlay-frame-px", type=_clamp_nonneg_int, default=0, help="Grubość ramki overlay (px)")
+    parser.add_argument("--overlay-frame-color", default="#000000", help="Kolor ramki overlay w formacie #RRGGBB")
+    parser.add_argument("--bg-offset", type=float, default=0.0, help="Opóźnienie ruchu tła (s)")
+    parser.add_argument("--fg-offset", type=float, default=0.0, help="Opóźnienie ruchu panelu (s)")
+    parser.add_argument("--bg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu tła")
+    parser.add_argument("--bg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu tła (Hz)")
+    parser.add_argument("--fg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu panelu")
+    parser.add_argument("--fg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu panelu (Hz)")
+    parser.add_argument("--travel-path", choices=["linear", "arc"], default="linear", help="Tor przejazdu kamery")
+    parser.add_argument("--deep-bottom-glow", type=float, default=0.0, help="Poświata od dołu (0..1)")
     parser.add_argument("--page-scale-overlay", type=_page_scale_type, default=1.0, help="Skala strony przy overlay")
     parser.add_argument("--bg-vignette", type=_parallax_type, default=0.15, help="Siła winiety tła")
     parser.add_argument("--look", choices=["none", "witcher1"], default="none", help="Preset koloru tła")
@@ -720,6 +740,16 @@ def main() -> None:
             bg_vignette=args.bg_vignette,
             overlay_pop=args.overlay_pop,
             overlay_jitter=args.overlay_jitter,
+            overlay_frame_px=args.overlay_frame_px,
+            overlay_frame_color=args.overlay_frame_color,
+            bg_offset=args.bg_offset,
+            fg_offset=args.fg_offset,
+            bg_drift_zoom=args.bg_drift_zoom,
+            bg_drift_speed=args.bg_drift_speed,
+            fg_drift_zoom=args.fg_drift_zoom,
+            fg_drift_speed=args.fg_drift_speed,
+            travel_path=args.travel_path,
+            deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
             limit_items=args.limit_items,
             trans=args.trans,
