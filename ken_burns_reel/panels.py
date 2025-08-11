@@ -312,7 +312,8 @@ def export_panels(
                 mask_crop = roughen_alpha(mask_crop, roughen, roughen_scale)
             alpha = mask_crop
             bin_alpha = (alpha > 127).astype(np.uint8)
-            holes_ratio = 1.0 - float(bin_alpha.sum()) / bin_alpha.size
+            panel_area = max(1, (m[y0:y1, x0:x1] > 0).sum())
+            holes_ratio = 1.0 - float(bin_alpha.sum()) / float(panel_area)
             if holes_ratio > mask_rect_fallback:
                 alpha = np.full_like(alpha, 255)
             rgba = np.dstack([crop, alpha])
