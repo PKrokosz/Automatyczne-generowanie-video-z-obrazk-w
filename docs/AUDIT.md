@@ -30,6 +30,9 @@
 ### `ken_burns_reel/__main__.py`
 - `main()` – CLI; sprawdza tesseract i uruchamia `make_filmstrip`.
 
+### `scripts/ken_burns_scroll_audio.py`
+- Przykładowy skrypt CLI do generowania wideo ze skrolowaniem i audio.
+
 ## Grupy funkcjonalne
 - **OCR/Caption**: `extract_caption`, `overlay_caption`, `verify_tesseract_available`.
 - **Focus/Compose**: `detect_focus_point`, `smart_crop`, `ken_burns_scroll`.

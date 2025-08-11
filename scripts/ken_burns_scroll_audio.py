@@ -13,7 +13,6 @@ from moviepy.editor import (
     ImageClip,
     concatenate_videoclips,
 )
-from moviepy.video.fx.all import crop
 
 from ken_burns_reel.bin_config import resolve_imagemagick, resolve_tesseract
 from ken_burns_reel.captions import overlay_caption

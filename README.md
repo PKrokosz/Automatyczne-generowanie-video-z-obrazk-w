@@ -143,7 +143,7 @@ lewitujących paneli. Przydatne flagi:
 ## 📂 Struktura projektu
 
 ```
-ken_burns_scroll_audio.py      # Skrypt CLI do generowania wideo ze skrolowaniem i audio
+scripts/ken_burns_scroll_audio.py      # Przykładowy skrypt CLI do generowania wideo ze skrolowaniem i audio
 ken_burns_reel/
  ├── __main__.py                # Główny punkt wejścia pakietu
  ├── __init__.py
