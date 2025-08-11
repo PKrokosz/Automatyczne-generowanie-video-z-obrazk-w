@@ -7,6 +7,7 @@ import os
 import random
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import yaml
@@ -52,7 +53,7 @@ def _zoom_max_type(x: str) -> float:
     return v
 
 
-def _resolve_out_path(output_arg: str | None, default_name: str, base_folder: str) -> str:
+def _legacy_out_path(output_arg: str | None, default_name: str, base_folder: str) -> str:
     if output_arg:
         if output_arg.endswith(os.sep) or os.path.isdir(output_arg):
             out = os.path.join(output_arg, default_name)
@@ -76,6 +77,23 @@ def _resolve_out_path(output_arg: str | None, default_name: str, base_folder: st
         if not os.path.exists(cand):
             return cand
         i += 1
+
+
+def _resolve_out_path(args: argparse.Namespace, default_name: str, base_folder: str) -> str:
+    if args.out_naming == "keep":
+        return _legacy_out_path(args.output, default_name, base_folder)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = Path(args.folder).name
+    mode = args.mode or "classic"
+    if args.out_naming == "custom":
+        prefix = args.out_prefix or "video"
+        name = f"{prefix}_{ts}.mp4"
+    else:
+        prefix = args.out_prefix or ""
+        name = f"{prefix}{slug}-{mode}_{ts}.mp4"
+    out_dir = args.output if args.output else base_folder
+    os.makedirs(out_dir, exist_ok=True)
+    return os.path.join(out_dir, name)
 
 
 def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> None:
@@ -201,7 +219,7 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit, gain_db=args.audio_gain)
             clip = clip.set_audio(audio)
 
-        out_path = _resolve_out_path(args.output, "final_video.mp4", args.folder)
+        out_path = _resolve_out_path(args, "final_video.mp4", args.folder)
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
@@ -234,6 +252,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output",
         help="Path to MP4 file or output directory. If existing, a timestamp/counter is appended.",
     )
+    parser.add_argument(
+        "--out-naming",
+        choices=["auto", "keep", "custom"],
+        default="auto",
+        help="Naming policy for output file",
+    )
+    parser.add_argument("--out-prefix", default="", help="Prefix for auto/custom naming")
     parser.add_argument("--export-panels", help="Export detected panels to folder")
     parser.add_argument("--oneclick", action="store_true", help="Tryb one-click: auto video from pages and audio")
     parser.add_argument("--validate", action="store_true", help="Validate arguments and exit")
@@ -714,7 +739,7 @@ def main(argv: list[str] | None = None) -> None:
             panel_bleed=args.panel_bleed,
             zoom_max=args.zoom_max,
         )
-        out_path = _resolve_out_path(args.output, "final_video.mp4", args.folder)
+        out_path = _resolve_out_path(args, "final_video.mp4", args.folder)
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
@@ -857,7 +882,7 @@ def main(argv: list[str] | None = None) -> None:
         if audio_path:
             audio = _fit_audio_clip(audio_path, clip.duration, args.audio_fit, gain_db=args.audio_gain)
             clip = clip.set_audio(audio)
-        out_path = _resolve_out_path(args.output, "final_video.mp4", args.folder)
+        out_path = _resolve_out_path(args, "final_video.mp4", args.folder)
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
@@ -903,7 +928,7 @@ def main(argv: list[str] | None = None) -> None:
             bg_mode=args.bg_mode,
             bg_parallax=args.bg_parallax,
         )
-        out_path = _resolve_out_path(args.output, "final_video.mp4", args.folder)
+        out_path = _resolve_out_path(args, "final_video.mp4", args.folder)
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
@@ -925,7 +950,7 @@ def main(argv: list[str] | None = None) -> None:
             target_size=target_size,
         )
         if os.path.exists(src):
-            dst = _resolve_out_path(args.output, "final_video.mp4", args.folder)
+            dst = _resolve_out_path(args, "final_video.mp4", args.folder)
             if os.path.abspath(src) != os.path.abspath(dst):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 os.replace(src, dst)

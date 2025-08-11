@@ -1,5 +1,7 @@
 # Automatyczne Generowanie Wideo z Obrazków
 
+![CI](https://github.com/PKrokosz/Automatyczne-generowanie-video-z-obrazk-w/actions/workflows/ci.yml/badge.svg)
+
 Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzystujący efekt **Ken Burns**, przewijanie w osi X/Y, dodawanie dźwięku, przejścia oraz napisy z OCR.
 
 ## Table of Contents
@@ -9,6 +11,7 @@ Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzyst
 - [Tests](#tests)
 - [Contributing](#contributing)
 - [License](#license)
+- [How to read this repo](#how-to-read-this-repo)
 
 ## Features
 - Efekt Ken Burns (zoom i przesunięcie) dla pojedynczych paneli.
@@ -113,3 +116,7 @@ Zasady współpracy opisuje [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 Projekt na licencji MIT — patrz [LICENSE](LICENSE).
+
+## How to read this repo
+
+Szczegółowa dokumentacja znajduje się w katalogu [docs/KB](docs/KB/index.md).
