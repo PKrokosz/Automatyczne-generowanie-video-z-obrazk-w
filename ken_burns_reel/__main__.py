@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
+import random
 import sys
 
+import numpy as np
 import yaml
 
 from .bin_config import resolve_imagemagick, resolve_tesseract
@@ -196,6 +199,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--magick", help="Path to ImageMagick binary")
     parser.add_argument("--export-panels", help="Export detected panels to folder")
     parser.add_argument("--oneclick", action="store_true", help="Tryb one-click: auto video from pages and audio")
+    parser.add_argument("--validate", action="store_true", help="Validate arguments and exit")
+    parser.add_argument("--deterministic", action="store_true", help="Force deterministic build")
     parser.add_argument(
         "--export-mode",
         choices=["rect", "mask"],
@@ -463,7 +468,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bpm", type=int, help="Ustaw tempo utworu (beats per minute)")
     parser.add_argument("--beats-per-panel", type=float, default=2.0, help="Ile beatów na panel")
     parser.add_argument("--beats-travel", type=float, default=0.5, help="Ile beatów przejazdu")
-    parser.add_argument("--readability-ms", type=int, default=900, help="Minimalna ekspozycja panelu (ms)")
+    parser.add_argument(
+        "--readability-ms",
+        type=int,
+        default=1400,
+        help="Minimalna ekspozycja panelu (ms)",
+    )
     parser.add_argument("--min-dwell", type=float, default=1.0, help="Minimalny czas zatrzymania (s)")
     parser.add_argument("--max-dwell", type=float, default=1.8, help="Maksymalny czas zatrzymania (s)")
     parser.add_argument("--settle-min", type=float, default=0.12, help="Minimalny czas settle (s)")
@@ -542,11 +552,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.travel_ease == "ease":
         args.travel_ease = "inout"
+    if args.readability_ms < 1400:
+        parser.error("--readability-ms must be >= 1400")
     return args
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.deterministic:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        logging.info("deterministic build seed=%s", args.seed)
+    if args.validate:
+        return
     target_size = (1080, 1920)
     if args.size:
         try:

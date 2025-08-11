@@ -82,6 +82,12 @@ python -m ken_burns_reel two_pages ^
 
 Szczegółowe przykłady CLI znajdują się w [docs/cli_examples.md](docs/cli_examples.md).
 
+Flagi pomocnicze:
+
+- `--validate` — sprawdza poprawność argumentów i kończy działanie.
+- `--deterministic` — wymusza deterministyczny wynik (użyj z `--seed`).
+- `--readability-ms` ma domyślną wartość **1400**; niższa wartość zostanie odrzucona.
+
 One-liner (PowerShell/Bash/CMD):
 
 ```

@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--bg-offset", type=float, default=0.0)
     parser.add_argument("--fg-offset", type=float, default=0.0)
-    parser.add_argument("--min-read", type=float, default=0.0)
+    parser.add_argument("--min-read", type=float, default=1.4)
     parser.add_argument("--drift-x", type=float, default=0.0)
     parser.add_argument("--drift-y", type=float, default=0.0)
     parser.add_argument("--rot-deg", type=float, default=0.0)
@@ -44,8 +44,8 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append("--trans-dur must be >= 0")
     if args.bg_offset and args.fg_offset:
         errors.append("conflict: --bg-offset with --fg-offset")
-    if args.min_read < 0:
-        errors.append("--min-read must be >= 0")
+    if args.min_read < 1.4:
+        errors.append("--min-read must be >= 1.4")
     if abs(args.drift_x) > 0.01:
         errors.append("--drift-x out of range")
     if abs(args.drift_y) > 0.01:

@@ -1473,6 +1473,22 @@ def make_panels_overlay_sequence(
                     bg_offset=bg_offset,
                     fg_offset=fg_offset,
                 )
+            elif trans == "fg-fade":
+                from .transitions import fg_fade
+
+                tbg = tail_bg.subclip(seg_dur, seg_dur + trans_dur)
+                tfg = tail_fg.subclip(seg_dur, seg_dur + trans_dur)
+                hfg = fg_clips[i + 1].subclip(0, trans_dur)
+                tfg_faded = fg_fade(tfg, duration=trans_dur, fg_offset=fg_offset)
+                hfg_in = fg_fade(
+                    hfg, duration=trans_dur, fg_offset=fg_offset
+                ).fx(lambda c: c.invert_mask())
+                tclip = _set_fps(
+                    CompositeVideoClip(
+                        [tbg, tfg_faded, hfg_in], size=target_size
+                    ),
+                    fps,
+                )
             elif trans == "whip":
                 bg_t = whip_pan_transition(
                     tail_bg, bg_clips[i + 1], trans_dur, target_size, vec, fps=fps
