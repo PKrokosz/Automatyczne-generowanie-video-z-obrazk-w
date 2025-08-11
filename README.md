@@ -1,298 +1,54 @@
 # Automatyczne Generowanie Wideo z Obrazków
 
-Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzystujący efekt **Ken Burns** (powiększanie/przesuwanie), możliwość przewijania w osi X/Y, dodawania dźwięku, przejść i napisów z OCR.
+Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzystujący efekt **Ken Burns**, przewijanie w osi X/Y, dodawanie dźwięku, przejścia oraz napisy z OCR.
 
-Projekt zawiera modularną architekturę z możliwością modyfikacji poszczególnych etapów — od wykrywania punktu ostrości po eksport finalnego wideo.
+## Table of Contents
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Tests](#tests)
+- [Contributing](#contributing)
+- [License](#license)
 
----
+## Features
+- Efekt Ken Burns (zoom i przesunięcie) dla pojedynczych paneli.
+- Obsługa przewijania w osi X/Y z paralaksą tła.
+- Integracja z audio, przejściami i napisami generowanymi przez OCR.
+- Modularna architektura umożliwiająca modyfikację etapów przetwarzania.
 
-## 🚀 Quick start
+## Installation
+1. Zainstaluj zależności Pythona:
+   ```bash
+   pip install -e .
+   ```
+2. Zainstaluj dodatkowe narzędzia:
+   - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
+   - [ImageMagick](https://imagemagick.org)
+   - FFmpeg (wymagany przez MoviePy)
+3. **Konfiguracja binarek** – ścieżki są wykrywane w kolejności:
+   1. Parametry CLI `--magick` / `--tesseract`
+   2. Zmienne środowiskowe `IMAGEMAGICK_BINARY` / `TESSERACT_BINARY`
+   3. Dla Tesseract: `pytesseract.pytesseract.tesseract_cmd`
+   4. Wyszukanie w systemowym `PATH`
+   Jeśli narzędzie nie zostanie znalezione, napisy/OCR mogą zostać pominięte.
+   Na Windows upewnij się, że katalog ImageMagick zawiera `colors.xml`, a `tesseract.exe` znajduje się w `PATH`.
 
-**Bash**
-
+## Usage
 ```bash
 python -m ken_burns_reel . --mode panels \
   --bg-mode blur --page-scale 0.94 --bg-parallax 0.85 \
   --profile social
 ```
 
-**PowerShell** (multiline używa backticka \`)
+Szczegółowe przykłady CLI znajdują się w [docs/cli_examples.md](docs/cli_examples.md).
 
-```powershell
-python -m ken_burns_reel . `
-  --mode panels `
-  --bg-mode blur `
-  --page-scale 0.94 `
-  --bg-parallax 0.85 `
-  --profile social
-```
-
-**CMD** (multiline używa znaku ^)
-
-```cmd
-python -m ken_burns_reel . --mode panels ^
-  --bg-mode blur ^
-  --page-scale 0.94 ^
-  --bg-parallax 0.85 ^
-  --profile social
-```
-
-## One-click
-
-Tryb eksperymentalny generujący film z folderu stron i pliku audio jedną komendą.
-
-**PowerShell (jedna linia)**
-
-```powershell
-python -m ken_burns_reel . --oneclick --limit-items 10 --align-beat --profile preview --aspect 9:16 --height 1080
-```
-
-**Bash (jedna linia)**
-
-```bash
-python -m ken_burns_reel . --oneclick --limit-items 10 --align-beat --profile preview --aspect 9:16 --height 1080
-```
-
-Obrazy mogą znajdować się w bieżącym katalogu lub podfolderze `pages/`. Dźwięk szukany jest w katalogu nadrzędnym. Jeśli nie zostanie znaleziony plik audio, wideo powstanie bez wyrównania do beatów, a skrypt wypisze stosowną informację.
-
-Przykłady wymiarowania:
-
-```bash
-# 16:9 poziomo
-python -m ken_burns_reel . --mode panels --size 1920x1080 \
-  --bg-mode blur --page-scale 0.94 --profile social
-
-# 9:16 pionowo
-python -m ken_burns_reel . --mode panels --aspect 9:16 --height 1080 \
-  --bg-mode blur --page-scale 0.94 --profile social
-```
-
-Rekomendowana wartość `--page-scale` mieści się w zakresie `0.90–0.95`.
-
----
-
-### Eksport paneli
-
-```bash
-python -m ken_burns_reel input_pages --export-panels panels --export-mode rect
-```
-
-### Tryb panel-first
-
-**PowerShell** (multiline backtick)
-
-```powershell
-python -m ken_burns_reel .\panels `
-  --mode panels-items `
-  --trans smear --trans-dur 0.32 --smear-strength 1.1 `
-  --bg-mode blur --page-scale 0.92 --bg-parallax 0.85 `
-  --profile preview
-```
-
-**Bash**
-
-```bash
-python -m ken_burns_reel panels --mode panels-items \
-  --size 1920x1080 --trans whip --trans-dur 0.28 \
-  --profile social
-```
-
-### Overlay mode (page + masked panels)
-
-```bash
-python -m ken_burns_reel . --mode panels-overlay \
-  --overlay-fit 0.75 --bg-source page \
-  --parallax-bg 0.85 --parallax-fg 0.08 \
-  --travel-ease inout
-```
-
-W tym trybie pełna strona stanowi tło z płynnym ruchem między panelami,
-a pojedynczy panel (z zachowaną białą ramką) pojawia się na środku
-kadru jako nakładka z cieniem. Ruch kamery można wygładzić parametrem
-`--travel-ease inout`.
-
-`--bg-source`:
-
-- `page` (crop strony z toningiem i winietą)
-- `blur`
-- `stretch`
-- `gradient`
-
-Ustawienie `page` kadruje oryginalną stronę, nakłada delikatną tonację
-oraz winietę, dzięki czemu tło jest stonowane.
-
-`--bg-source`:
-
-- `page` (crop strony z toningiem)
-- `blur`
-- `stretch`
-- `gradient`
-
-#### Overlay z trzema warstwami
-
-Tryb `panels-overlay` może korzystać z rozmytego, prawie statycznego tła i
-lewitujących paneli. Przydatne flagi:
-
-- `--bg-blur` – poziom rozmycia tła (domyślnie 8.0)
-- `--bg-parallax` – siła ruchu tła (domyślnie 0.05 w `panels-overlay`)
-- `--roughen`, `--roughen-scale` – nieregularne krawędzie masek paneli
-- `--export-mode rect` – zapis prostokątnych paneli z pełną alfą
-
----
-
-## 📂 Struktura projektu
-
-```
-scripts/ken_burns_scroll_audio.py      # Przykładowy skrypt CLI do generowania wideo ze skrolowaniem i audio
-ken_burns_reel/
- ├── __main__.py                # Główny punkt wejścia pakietu
- ├── __init__.py
- ├── audio.py                   # Obsługa dźwięku w klipach
- ├── builder.py                 # Budowanie sekwencji wideo z efektami
- ├── config.py                  # Konfiguracja projektu
- ├── focus.py                   # Wykrywanie punktu ostrości na obrazie
- ├── ocr.py                     # OCR z użyciem Tesseract
- ├── transitions.py             # Efekty przejść między klipami
- ├── utils.py                   # Funkcje pomocnicze
-tests/
- ├── test_audio.py              # Testy modułu audio
- ├── test_focus.py              # Testy wykrywania punktu ostrości
- ├── test_ocr.py                # Testy OCR
-docs/
- └── AUDIT.md                   # Dokument audytu kodu
-```
-
----
-
-## 🚀 Instalacja
-
-1. **Klonowanie repozytorium**
-```bash
-git clone https://github.com/<twoje-repo>/Automatyczne-generowanie-video-z-obrazkow.git
-cd Automatyczne-generowanie-video-z-obrazkow
-```
-
-2. **Instalacja zależności**
-```bash
-pip install -e .
-```
-
-3. **Wymagania dodatkowe**
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) — wymagany do ekstrakcji tekstu z obrazów (OCR)
-- [ImageMagick](https://imagemagick.org) — renderowanie podpisów
-- FFmpeg — wymagany przez MoviePy do renderowania wideo
-
-### Konfiguracja binarek
-
-Ścieżki do narzędzi zewnętrznych są rozwiązywane automatycznie w kolejności:
-
-1. Parametry CLI `--magick` / `--tesseract`.
-2. Zmienne środowiskowe `IMAGEMAGICK_BINARY` / `TESSERACT_BINARY`.
-3. Dla Tesseract: `pytesseract.pytesseract.tesseract_cmd`.
-4. Wyszukanie w `PATH` systemowym.
-
-Jeśli narzędzie nie zostanie znalezione, napisy/OCR mogą zostać pominięte.
-Na Windows upewnij się, że:
-
-- katalog ImageMagick zawiera poprawny plik `colors.xml`,
-- `tesseract.exe` znajduje się w `PATH` lub podaj do niego pełną ścieżkę.
-
----
-
-## 📖 Użycie
-
-### 1. Uruchomienie pakietu jako modułu
-```bash
-python -m ken_burns_reel <ścieżka_do_folderu_z_obrazkami> --output output.mp4
-```
-
-**Najważniejsze opcje CLI**:
-- `--audio-fit {trim,silence,loop}` — dopasowanie długości audio do wideo
-- `--audio-fit trim` — jeśli audio jest krótsze niż wideo, narzędzie automatycznie dopełnia ciszą (z fade-in/out), żeby uniknąć błędów odtwarzacza.
-- `--dwell-mode {first,each}` — zatrzymanie tylko na pierwszym panelu lub na każdym
-- `--align-beat` — dociąga start stron do beatu (±0.08 s, bez ujemnych segmentów)
-- `--debug-panels` — zapisuje podgląd wykrytych paneli i kończy działanie
-- `--bg-mode {none,blur,stretch,gradient}` — sposób wypełnienia tła
-- `--bg-parallax` — siła paralaksy tła (0–1)
-- `--page-scale` — skala strony w kadrze (0.80–1.0)
-- `--panel-bleed` — margines przy kadrowaniu panelu (px)
-- `--zoom-max` — maksymalne dodatkowe przybliżenie małego tekstu
-- `--travel-ease {in,out,inout,linear}` — easing ruchu kamery
-- `--size WxH` lub `--aspect 9:16|16:9|1:1 --height H` — docelowy rozmiar wideo
-- `--profile {preview,social,quality}` / `--preview` — presety eksportu (jakość vs szybkość)
-
-Czas trwania filmu wynika z sumy klipów wideo, a audio jest dostosowywane zgodnie z `--audio-fit`.
-
----
-
-### Formaty i presety
-
-Przykłady użycia:
-
-**Bash**
-```bash
-python -m ken_burns_reel folder --bg-mode blur --profile social
-```
-
-**CMD**
-```cmd
-python -m ken_burns_reel folder --bg-mode blur --profile social
-```
-
-**PowerShell** (multiline używa backticka `, a nie ^)
-```powershell
-python -m ken_burns_reel folder `
-  --bg-mode blur `
-  --page-scale 0.92
-```
-
-Zalecane `--page-scale` w zakresie `0.90–0.95`. Wideo można wymiarować przez `--size WxH` albo `--aspect 9:16 --height 1080`.
-
----
-
-## 🔧 Moduły
-
-### `focus.py`
-- `detect_focus_point(image)` — wykrywa główny punkt ostrości obrazu na podstawie jasności i kontrastu.
-
-### `ocr.py`
-- `verify_tesseract_available()` — sprawdza, czy Tesseract jest zainstalowany.
-- `extract_text_from_image(image)` — odczytuje tekst z obrazu.
-
-### `audio.py`
-- `add_audio_to_clip(clip, audio_path)` — dodaje ścieżkę audio do klipu.
-- `fit_audio_duration(clip, audio_path)` — dopasowuje długość audio do klipu.
-
-### `builder.py`
-- Funkcje do tworzenia sekwencji klipów z efektami Ken Burns, przesunięciem, zoomem i OCR.
-
-### `transitions.py`
-- `crossfade_clips(clips, duration)` — dodaje efekt przenikania między klipami.
-- Inne efekty przejść.
-
-### `utils.py`
-- Funkcje wspólne dla wielu modułów (np. ładowanie obrazów, walidacja plików).
-
----
-
-## 🤝 Wkład
-
-Zasady współpracy opisuje [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## 🧪 Testy
-Aby uruchomić testy:
+## Tests
 ```bash
 pytest tests/
 ```
 
----
+## Contributing
+Zasady współpracy opisuje [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 📜 Licencja
+## License
 Projekt na licencji MIT — patrz [LICENSE](LICENSE).
-
----
-
-## ✨ Autorzy
-Projekt stworzony przez **[Twoje Imię / Nick]**.
