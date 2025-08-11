@@ -12,6 +12,7 @@ import yaml
 
 from .bin_config import resolve_imagemagick, resolve_tesseract
 from .builder import make_filmstrip, _export_profile, _fit_audio_clip
+from .layers import shadow_cache_stats
 from .ocr import verify_tesseract_available
 
 
@@ -177,6 +178,15 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
+        if args.profile == "perf":
+            hits, misses = shadow_cache_stats()
+            total = hits + misses
+            rate = hits / total if total else 0.0
+            logging.info(
+                "shadow_cache hit-rate: %.2f%% (%d/%d)", rate * 100, hits, total
+            )
+            clip_count = sum(1 for _ in clip.iter_clips())
+            logging.info("VideoClip count: %d", clip_count)
         clip.write_videofile(
             out_path,
             fps=prof["fps"],
@@ -368,7 +378,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        choices=["preview", "social", "quality"],
+        choices=["preview", "social", "quality", "perf"],
         default="social",
         help="Preset eksportu",
     )
@@ -677,6 +687,15 @@ def main(argv: list[str] | None = None) -> None:
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
+        if args.profile == "perf":
+            hits, misses = shadow_cache_stats()
+            total = hits + misses
+            rate = hits / total if total else 0.0
+            logging.info(
+                "shadow_cache hit-rate: %.2f%% (%d/%d)", rate * 100, hits, total
+            )
+            clip_count = sum(1 for _ in clip.iter_clips())
+            logging.info("VideoClip count: %d", clip_count)
         clip.write_videofile(
             out_path,
             fps=prof["fps"],
@@ -791,6 +810,11 @@ def main(argv: list[str] | None = None) -> None:
             overlay_frame_color=args.overlay_frame_color,
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
+            seed=args.seed,
+            bg_drift_zoom=args.bg_drift_zoom,
+            bg_drift_speed=args.bg_drift_speed,
+            fg_drift_zoom=args.fg_drift_zoom,
+            fg_drift_speed=args.fg_drift_speed,
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
@@ -806,6 +830,15 @@ def main(argv: list[str] | None = None) -> None:
         prof = _export_profile(args.profile, args.codec, target_size)
         if prof.get("resize"):
             clip = clip.resize(newsize=prof["resize"])
+        if args.profile == "perf":
+            hits, misses = shadow_cache_stats()
+            total = hits + misses
+            rate = hits / total if total else 0.0
+            logging.info(
+                "shadow_cache hit-rate: %.2f%% (%d/%d)", rate * 100, hits, total
+            )
+            clip_count = sum(1 for _ in clip.iter_clips())
+            logging.info("VideoClip count: %d", clip_count)
         clip.write_videofile(
             out_path,
             fps=prof["fps"],

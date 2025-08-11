@@ -1534,6 +1534,7 @@ def _export_profile(profile: str, codec: str, target_size: Tuple[int, int]) -> D
         "preview": {"crf": "31", "preset": "veryfast", "audio_bitrate": "96k", "fps": 24},
         "social": {"crf": "26", "preset": "medium", "audio_bitrate": "128k", "fps": 30},
         "quality": {"crf": "21", "preset": "slow", "audio_bitrate": "192k", "fps": 30},
+        "perf": {"crf": "36", "preset": "ultrafast", "audio_bitrate": "64k", "fps": 30},
     }[profile]
     resize = None
     if profile == "preview" and target_size == (1080, 1920):
