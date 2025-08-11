@@ -15,6 +15,16 @@ Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzyst
 - Obsługa przewijania w osi X/Y z paralaksą tła.
 - Integracja z audio, przejściami i napisami generowanymi przez OCR.
 - Modularna architektura umożliwiająca modyfikację etapów przetwarzania.
+- Efekty warstwowe takie jak `page_shadow` oraz przejście `overlay_lift` z
+  animowaną podmianą panelu.
+- Możliwość ładowania presetów stylu z plików YAML (np. `styles/float_black_v1.yaml`).
+
+## Kolor
+Ścieżka przetwarzania zachowuje stałą konwersję sRGB → linear → sRGB przy
+użyciu 16‑bitowej precyzji.  Pomaga to zminimalizować dryf barw i zapewnia
+powtarzalne wyniki.  Funkcje pomocnicze znajdują się w module
+`ken_burns_reel.color` i są objęte testem "color‑lock" porównującym
+histogramy kanałów.
 
 ## Installation
 1. Zainstaluj zależności Pythona:
@@ -40,7 +50,43 @@ python -m ken_burns_reel . --mode panels \
   --profile social
 ```
 
+Presety można wczytać przez `--preset <plik.yaml>`; repo zawiera m.in.
+`styles/float_black_v1.yaml`. Hierarchia: domyślne < style preset < motion preset <
+flagi CLI.
+
+### 2-page test
+
+**Bash**
+
+```bash
+python -m ken_burns_reel two_pages \
+  --preset styles/float_black_v1.yaml \
+  --transition-duration 0.3
+```
+
+**PowerShell**
+
+```powershell
+python -m ken_burns_reel two_pages `
+  --preset styles/float_black_v1.yaml `
+  --transition-duration 0.3
+```
+
+**CMD**
+
+```cmd
+python -m ken_burns_reel two_pages ^
+  --preset styles\float_black_v1.yaml ^
+  --transition-duration 0.3
+```
+
 Szczegółowe przykłady CLI znajdują się w [docs/cli_examples.md](docs/cli_examples.md).
+
+One-liner (PowerShell/Bash/CMD):
+
+```
+python -m ken_burns_reel.cli --trans fg-fade --transition-duration 0.3 input_folder
+```
 
 ## Tests
 ```bash

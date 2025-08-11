@@ -260,9 +260,12 @@ def _paste_rgba_clipped(canvas: np.ndarray, overlay: np.ndarray, x: int, y: int)
 
     if (dst_x1 <= dst_x0) or (dst_y1 <= dst_y0):
         return
-
-    canvas[dst_y0:dst_y1, dst_x0:dst_x1, :3] = overlay[src_y0:src_y1, src_x0:src_x1, :3]
-    canvas[dst_y0:dst_y1, dst_x0:dst_x1, 3] = overlay[src_y0:src_y1, src_x0:src_x1, 3]
+    ov = overlay[src_y0:src_y1, src_x0:src_x1]
+    rgb = ov[:, :, :3].astype(np.uint16)
+    alpha = ov[:, :, 3:4].astype(np.uint16)
+    rgb = (rgb * alpha // 255).astype(np.uint8)
+    canvas[dst_y0:dst_y1, dst_x0:dst_x1, :3] = rgb
+    canvas[dst_y0:dst_y1, dst_x0:dst_x1, 3] = ov[:, :, 3]
 
 
 def _hex_to_rgb(value: str) -> Tuple[int, int, int]:
@@ -603,7 +606,7 @@ def make_panels_cam_sequence(
     fps: int = 30,
     dwell: float = 1.0,
     travel: float = 0.6,
-    xfade: float = 0.4,
+    trans_dur: float = 0.4,
     settle: float = 0.14,
     travel_ease: str = "inout",
     dwell_scale: float = 1.0,
@@ -651,7 +654,7 @@ def make_panels_cam_sequence(
     # prepare start times
     starts = [0.0]
     for i in range(1, len(clips)):
-        start = starts[i - 1] + clips[i - 1].duration - xfade
+        start = starts[i - 1] + clips[i - 1].duration - trans_dur
         if align_beat and beat_times:
             nearest = min(beat_times, key=lambda b: abs(b - start))
             delta = nearest - start
@@ -664,7 +667,7 @@ def make_panels_cam_sequence(
     for i, clip in enumerate(clips):
         clip = clip.set_start(starts[i])
         if i > 0:
-            clip = clip.crossfadein(xfade)
+            clip = clip.crossfadein(trans_dur)
         clips[i] = clip
 
     # audio fades for crossfade
@@ -1467,6 +1470,8 @@ def make_panels_overlay_sequence(
                     vec,
                     strength=smear_strength,
                     fps=fps,
+                    bg_offset=bg_offset,
+                    fg_offset=fg_offset,
                 )
             elif trans == "whip":
                 bg_t = whip_pan_transition(

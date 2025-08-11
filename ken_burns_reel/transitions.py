@@ -7,6 +7,7 @@ import math
 import numpy as np
 import cv2
 from .utils import gaussian_blur, _set_fps
+from .layers import page_shadow
 
 
 def ease_in_out(t: float) -> float:
@@ -149,6 +150,27 @@ def whip_pan_transition(
     return _set_fps(VideoClip(make_frame, duration=duration), fps)
 
 
+def fg_fade(panel_clip, duration: float, ease: str = "inout", fg_offset: float = 0.0):
+    """Fade only the foreground alpha of ``panel_clip``.
+
+    The background remains unchanged; only the mask (alpha) channel of the
+    panel clip is attenuated. ``fg_offset`` allows shifting the fade in time to
+    honour foreground offsets during transitions.
+    """
+
+    ease_fn = _get_ease_fn(ease)
+    if panel_clip.mask is None:
+        panel_clip = panel_clip.add_mask()
+    mask = panel_clip.mask
+
+    def mask_frame(t):
+        p = ease_fn((t + fg_offset) / max(1e-6, duration))
+        return mask.get_frame(t) * (1 - p)
+
+    faded_mask = mask.with_updated_frame_function(mask_frame)
+    return panel_clip.with_mask(faded_mask)
+
+
 def smear_bg_crossfade_fg(
     tail_bg,
     head_bg,
@@ -162,6 +184,8 @@ def smear_bg_crossfade_fg(
     fps: int = 30,
     bg_brightness_dip: float = 0.0,
     steps_auto: bool = False,
+    bg_offset: float = 0.0,
+    fg_offset: float = 0.0,
 ):
     """Smear transition for backgrounds with foreground crossfade."""
 
@@ -169,10 +193,14 @@ def smear_bg_crossfade_fg(
     if steps_auto:
         steps = max(8, int(min(W, H) / 160))
     dip = max(0.0, min(0.15, bg_brightness_dip))
-    tbg = tail_bg.subclip(tail_bg.duration - duration, tail_bg.duration)
-    hbg = head_bg.subclip(0, duration)
-    tfg = tail_fg.subclip(tail_fg.duration - duration, tail_fg.duration)
-    hfg = head_fg.subclip(0, duration)
+    tbg = tail_bg.subclip(
+        max(0, tail_bg.duration - duration - bg_offset), tail_bg.duration - bg_offset
+    )
+    hbg = head_bg.subclip(bg_offset, bg_offset + duration)
+    tfg = tail_fg.subclip(
+        max(0, tail_fg.duration - duration - fg_offset), tail_fg.duration - fg_offset
+    )
+    hfg = head_fg.subclip(fg_offset, fg_offset + duration)
     dx, dy = vec
 
     def make_bg(t):
@@ -214,3 +242,68 @@ def smear_bg_crossfade_fg(
         CompositeVideoClip([bg_clip, fg_clip], size=size).set_duration(duration),
         fps,
     )
+
+
+def overlay_lift(
+    panel: np.ndarray,
+    duration: float,
+    lift: dict | None = None,
+    fps: int = 30,
+):
+    """Lift-in effect for overlay panels.
+
+    ``panel`` is expected in RGBA with straight alpha. The animation applies a
+    subtle scale pop, shadow growth and alpha fade-in while keeping the
+    background untouched.
+    """
+
+    if lift is None:
+        lift = {"shadow": "grow", "scale": "pop", "alpha": "fade"}
+
+    H, W = panel.shape[:2]
+
+    def paste(dst: np.ndarray, src: np.ndarray, x: int, y: int) -> None:
+        h, w = src.shape[:2]
+        dst_h, dst_w = dst.shape[:2]
+        dx0, dy0 = max(0, x), max(0, y)
+        dx1, dy1 = min(dst_w, x + w), min(dst_h, y + h)
+        sx0, sy0 = max(0, -x), max(0, -y)
+        sx1, sy1 = sx0 + (dx1 - dx0), sy0 + (dy1 - dy0)
+        if dx1 <= dx0 or dy1 <= dy0:
+            return
+        dst[dy0:dy1, dx0:dx1] = src[sy0:sy1, sx0:sx1]
+
+    def make_rgba(t: float) -> np.ndarray:
+        p = min(1.0, max(0.0, t / max(1e-6, duration)))
+        scale = 0.9 + 0.1 * ease_out(p) if lift.get("scale") else 1.0
+        alpha_f = ease_out(p) if lift.get("alpha") else 1.0
+        shadow_s = ease_out(p) if lift.get("shadow") else 0.0
+        arr = panel
+        if scale != 1.0:
+            nw = max(1, int(round(W * scale)))
+            nh = max(1, int(round(H * scale)))
+            arr = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
+        rgba = page_shadow(arr, strength=0.4 * shadow_s, blur=6, offset_xy=(6, 6))
+        rgba = rgba.astype(np.float32)
+        rgba[..., :3] *= alpha_f
+        rgba[..., 3] *= alpha_f
+        canvas = np.zeros((H, W, 4), dtype=np.float32)
+        y0 = (H - rgba.shape[0]) // 2
+        x0 = (W - rgba.shape[1]) // 2
+        paste(canvas, rgba, x0, y0)
+        return np.clip(canvas, 0, 255).astype(np.uint8)
+
+    def make_frame(t: float) -> np.ndarray:
+        return make_rgba(t)[:, :, :3]
+
+    def make_mask(t: float) -> np.ndarray:
+        return make_rgba(t)[:, :, 3] / 255.0
+
+    clip = VideoClip(make_frame, duration=duration)
+    try:
+        mask = VideoClip(make_mask, is_mask=True, duration=duration)
+        clip = clip.with_mask(mask)
+    except TypeError:
+        mask = VideoClip(make_mask, ismask=True, duration=duration)
+        clip = clip.set_mask(mask)
+    return _set_fps(clip, fps)

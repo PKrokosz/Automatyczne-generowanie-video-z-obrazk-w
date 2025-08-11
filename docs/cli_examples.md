@@ -58,7 +58,7 @@ python -m ken_burns_reel input_pages --export-panels panels --export-mode rect
 ```powershell
 python -m ken_burns_reel .\panels `
   --mode panels-items `
-  --trans smear --trans-dur 0.32 --smear-strength 1.1 `
+  --trans smear --transition-duration 0.32 --smear-strength 1.1 `
   --bg-mode blur --page-scale 0.92 --bg-parallax 0.85 `
   --profile preview
 ```
@@ -67,7 +67,7 @@ python -m ken_burns_reel .\panels `
 
 ```bash
 python -m ken_burns_reel panels --mode panels-items \
-  --size 1920x1080 --trans whip --trans-dur 0.28 \
+  --size 1920x1080 --trans whip --transition-duration 0.28 \
   --profile social
 ```
 
