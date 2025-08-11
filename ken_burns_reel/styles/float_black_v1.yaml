@@ -1,7 +1,0 @@
-page_shadow:
-  strength: 0.25
-  blur: 12
-  offset_xy: [6, 6]
-bottom_glow: 0.1
-frame: 0.05
-vignette: 0.4

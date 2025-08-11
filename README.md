@@ -18,6 +18,7 @@ Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzyst
 - Efekty warstwowe takie jak `page_shadow` oraz przejście `overlay_lift` z
   animowaną podmianą panelu.
 - Możliwość ładowania presetów stylu z plików YAML (np. `styles/float_black_v1.yaml`).
+  Wszystkie style znajdują się teraz w katalogu `styles/`.
 
 ## Kolor
 Ścieżka przetwarzania zachowuje stałą konwersję sRGB → linear → sRGB przy
