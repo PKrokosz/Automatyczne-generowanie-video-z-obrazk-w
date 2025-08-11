@@ -1,11 +1,16 @@
-__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+build/
+dist/
+*.egg-info
 *.mp4
 *.wav
 *.mp3
+*.log
 .env
 .DS_Store
 .pytest_cache/
 .venv/
+.coverage
