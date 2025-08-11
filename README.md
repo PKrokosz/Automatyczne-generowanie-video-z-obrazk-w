@@ -18,6 +18,7 @@ Skrypt w Pythonie do automatycznego tworzenia wideo z serii obrazków, wykorzyst
 - Efekty warstwowe takie jak `page_shadow` oraz przejście `overlay_lift` z
   animowaną podmianą panelu.
 - Możliwość ładowania presetów stylu z plików YAML (np. `styles/float_black_v1.yaml`).
+  Wszystkie style znajdują się teraz w katalogu `styles/`.
 
 ## Kolor
 Ścieżka przetwarzania zachowuje stałą konwersję sRGB → linear → sRGB przy
@@ -84,9 +85,19 @@ python -m ken_burns_reel two_pages ^
 
 Szczegółowe przykłady CLI znajdują się w [docs/cli_examples.md](docs/cli_examples.md).
 
+
 ### Walidacja / utility CLI
 Helper do walidacji i eksperymentów jest wystawiony jako
 `ken_burns_reel.cli`:
+
+Flagi pomocnicze:
+
+- `--validate` — sprawdza poprawność argumentów i kończy działanie.
+- `--deterministic` — wymusza deterministyczny wynik (użyj z `--seed`).
+- `--readability-ms` ma domyślną wartość **1400**; niższa wartość zostanie odrzucona.
+
+One-liner (PowerShell/Bash/CMD):
+
 
 ```
 python -m ken_burns_reel.cli --trans fg-fade --transition-duration 0.3 input_folder

@@ -9,12 +9,12 @@ from ken_burns_reel.transitions import fg_fade, _get_ease_fn
 
 
 def test_fg_fade_keeps_background():
-    bg = ColorClip(size=(4, 4), color=(0, 0, 0)).with_duration(1).with_fps(1)
+    bg = ColorClip(size=(4, 4), color=(0, 0, 0)).set_duration(1).set_fps(1)
     fg = (
         ColorClip(size=(4, 4), color=(255, 0, 0))
-        .with_duration(1)
-        .with_fps(1)
-        .with_opacity(1)
+        .set_duration(1)
+        .set_fps(1)
+        .set_opacity(1)
     )
     faded = fg_fade(fg, 1)
     comp = CompositeVideoClip([bg, faded])
