@@ -1453,6 +1453,8 @@ def make_panels_overlay_sequence(
                     vec,
                     strength=smear_strength,
                     fps=fps,
+                    bg_offset=bg_offset,
+                    fg_offset=fg_offset,
                 )
             elif trans == "whip":
                 bg_t = whip_pan_transition(
