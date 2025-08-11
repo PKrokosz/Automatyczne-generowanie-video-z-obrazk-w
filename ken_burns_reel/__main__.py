@@ -157,10 +157,6 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
-            bg_drift_zoom=args.bg_drift_zoom,
-            bg_drift_speed=args.bg_drift_speed,
-            fg_drift_zoom=args.fg_drift_zoom,
-            fg_drift_speed=args.fg_drift_speed,
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
@@ -476,10 +472,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bg-offset", type=float, default=0.0, help="Opóźnienie ruchu tła (s)")
     parser.add_argument("--fg-offset", type=float, default=0.0, help="Opóźnienie ruchu panelu (s)")
     parser.add_argument("--seed", type=int, default=0, help="Seed deterministycznego driftu")
-    parser.add_argument("--bg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu tła")
-    parser.add_argument("--bg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu tła (Hz)")
-    parser.add_argument("--fg-drift-zoom", type=float, default=0.0, help="Amplituda mikro-zoomu panelu")
-    parser.add_argument("--fg-drift-speed", type=float, default=0.0, help="Częstotliwość mikro-zoomu panelu (Hz)")
     parser.add_argument("--travel-path", choices=["linear", "arc"], default="linear", help="Tor przejazdu kamery")
     parser.add_argument("--deep-bottom-glow", type=float, default=0.0, help="Poświata od dołu (0..1)")
     parser.add_argument("--page-scale-overlay", type=_page_scale_type, default=1.0, help="Skala strony przy overlay")
@@ -769,10 +761,6 @@ def main(argv: list[str] | None = None) -> None:
             overlay_frame_color=args.overlay_frame_color,
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
-            bg_drift_zoom=args.bg_drift_zoom,
-            bg_drift_speed=args.bg_drift_speed,
-            fg_drift_zoom=args.fg_drift_zoom,
-            fg_drift_speed=args.fg_drift_speed,
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,

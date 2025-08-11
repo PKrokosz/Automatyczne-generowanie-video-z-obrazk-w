@@ -80,14 +80,12 @@ python -m ken_burns_reel . --mode panels-overlay \
   --travel-ease inout
 ```
 
-## Overlay z ramką i driftem
+## Overlay z ramką
 
 ```bash
 python -m ken_burns_reel . --mode panels-overlay \
   --overlay-frame-px 8 --overlay-frame-color "#000000" \
   --bg-offset 0.0 --fg-offset 0.18 \
-  --bg-drift-zoom 0.008 --bg-drift-speed 0.06 \
-  --fg-drift-zoom 0.012 --fg-drift-speed 0.10 \
   --travel-path arc --deep-bottom-glow 0.30
 ```
 
