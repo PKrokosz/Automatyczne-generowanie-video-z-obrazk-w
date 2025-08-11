@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ken-burns-reel"
-version = "0.3.0"
+version = "0.2.1+filmic"
 description = "Automatyczne generowanie wideo z obrazków (Ken Burns + komiksowe panele)"
 authors = [{ name="PKrokosz" }]
 dependencies = []
@@ -17,7 +17,8 @@ exclude = ["legacy_old*"]
 dev = [
   "pytest",
   "opencv-python-headless>=4.9",
-  "moviepy",
+  "moviepy<2",
   "numpy",
-  "Pillow"
+  "Pillow",
+  "PyYAML"
 ]

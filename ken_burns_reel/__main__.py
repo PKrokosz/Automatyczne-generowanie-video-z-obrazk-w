@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
+
+import yaml
 
 from .bin_config import resolve_imagemagick, resolve_tesseract
 from .builder import make_filmstrip, _export_profile, _fit_audio_clip
@@ -184,9 +187,10 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             preset=prof["preset"],
         )
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a Ken Burns style video")
     parser.add_argument("folder", help="Input folder with images and audio")
+    parser.add_argument("--preset", action="append", default=[], help="Path to YAML preset overriding defaults")
     parser.add_argument("--tesseract", help="Path to Tesseract binary")
     parser.add_argument("--magick", help="Path to ImageMagick binary")
     parser.add_argument("--export-panels", help="Export detected panels to folder")
@@ -232,7 +236,15 @@ def main() -> None:
     parser.add_argument("--shadow-offset", type=_clamp_nonneg_int, default=3, help="Offset cienia (px)")
     parser.add_argument("--dwell", type=float, default=1.0, help="Czas zatrzymania na panelu (s)")
     parser.add_argument("--travel", type=float, default=0.6, help="Czas przejazdu między panelami (s)")
-    parser.add_argument("--xfade", type=float, default=0.4, help="Crossfade między stronami (s)")
+    parser.add_argument(
+        "--transition-duration",
+        "--trans-dur",
+        "--xfade",
+        dest="trans_dur",
+        type=float,
+        default=0.3,
+        help="Długość przejścia/crossfadu między panelami (s)",
+    )
     parser.add_argument("--settle", type=float, default=0.14, help="Długość micro-holdu (s)")
     parser.add_argument(
         "--travel-ease",
@@ -333,12 +345,6 @@ def main() -> None:
         choices=["xfade", "slide", "smear", "whip"],
         default="smear",
         help="Przejście między panelami w trybie panels-items",
-    )
-    parser.add_argument(
-        "--trans-dur",
-        type=float,
-        default=0.3,
-        help="Długość przejścia między panelami (s)",
     )
     parser.add_argument(
         "--smear-strength",
@@ -478,7 +484,20 @@ def main() -> None:
     parser.add_argument("--bg-vignette", type=_parallax_type, default=0.15, help="Siła winiety tła")
     parser.add_argument("--look", choices=["none", "witcher1"], default="none", help="Preset koloru tła")
     parser.add_argument("--items-from", help="Folder z maskami paneli")
-    args = parser.parse_args()
+
+    prelim, _ = parser.parse_known_args(argv)
+    preset_paths = prelim.preset
+    style_presets = [p for p in preset_paths if "styles" in p]
+    motion_presets = [p for p in preset_paths if "motion" in p or "motions" in p]
+    other_presets = [p for p in preset_paths if p not in style_presets + motion_presets]
+    for path in style_presets + motion_presets + other_presets:
+        with open(path, "r", encoding="utf8") as fh:
+            data = yaml.safe_load(fh) or {}
+        parser.set_defaults(**data)
+
+    args = parser.parse_args(argv)
+    if argv and "--xfade" in argv:
+        print("⚠️ --xfade is deprecated, use --transition-duration", file=sys.stderr)
 
     if args.mode is None:
         args.mode = "panels-overlay" if args.oneclick else "classic"
@@ -521,7 +540,11 @@ def main() -> None:
 
     if args.travel_ease == "ease":
         args.travel_ease = "inout"
+    return args
 
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     target_size = (1080, 1920)
     if args.size:
         try:
@@ -611,7 +634,7 @@ def main() -> None:
             fps=30,
             dwell=args.dwell,
             travel=args.travel,
-            xfade=args.xfade,
+            trans_dur=args.trans_dur,
             settle=args.settle,
             travel_ease=args.travel_ease,
             dwell_scale=args.dwell_scale,
