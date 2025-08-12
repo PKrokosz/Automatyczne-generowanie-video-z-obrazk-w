@@ -330,7 +330,7 @@ def test_overlay_enhance_applied(tmp_path):
         mag2 = gx ** 2 + gy ** 2
         return float(mag2.var())
 
-    assert sobel_var(fg) > sobel_var(orig)
+    assert sobel_var(fg) > sobel_var(orig) * 1.02
 
 
 def test_smear_bg_brightness_dip():

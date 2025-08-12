@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from .utils import gaussian_blur
 
 Box = Tuple[int, int, int, int]
@@ -326,7 +327,15 @@ def export_panels(
             im_out = Image.fromarray(rgba, mode="RGBA")
         fname = f"panel_{i:04d}.png"
         out_path = os.path.join(out_dir, fname)
-        im_out.save(out_path)
+        if mode == "mask":
+            meta = PngInfo()
+            meta.add_text("panel_x", str(x0))
+            meta.add_text("panel_y", str(y0))
+            meta.add_text("panel_w", str(x1 - x0))
+            meta.add_text("panel_h", str(y1 - y0))
+            im_out.save(out_path, pnginfo=meta)
+        else:
+            im_out.save(out_path)
         out_paths.append(out_path)
     return out_paths
 
