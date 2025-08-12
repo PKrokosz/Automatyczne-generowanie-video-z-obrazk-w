@@ -62,6 +62,14 @@ python -m ken_burns_reel input_folder ^
   --transition-duration 0.3
 ```
 
+### Tight border mask erosion
+Adjust how much the mask edge is eroded when exporting panels:
+
+```bash
+python -m ken_burns_reel input_folder --tight-border 0   # no erosion
+python -m ken_burns_reel input_folder --tight-border 12  # 12px erosion
+```
+
 ### Speech bubble detection (2-page test)
 
 **PowerShell**
