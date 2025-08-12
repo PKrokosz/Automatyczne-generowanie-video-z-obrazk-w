@@ -883,12 +883,16 @@ def make_panels_overlay_sequence(
             for pf in panel_files:
                 with Image.open(pf) as pm:
                     arr = np.array(pm.convert("RGBA"))
+                    info = pm.info or {}
                 a = arr[:, :, 3]
                 ys, xs = np.where(a > 0)
-                if ys.size == 0 or xs.size == 0:
-                    continue
-                x0, y0, x1, y1 = xs.min(), ys.min(), xs.max(), ys.max()
-                boxes.append((int(x0), int(y0), int(x1 - x0 + 1), int(y1 - y0 + 1)))
+                if ys.size and xs.size:
+                    lx0, ly0, lx1, ly1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+                    ox = int(info.get("panel_x", 0))
+                    oy = int(info.get("panel_y", 0))
+                    x0, y0 = ox + lx0, oy + ly0
+                    w, h = lx1 - lx0, ly1 - ly0
+                    boxes.append((x0, y0, w, h))
             boxes = order_panels_lr_tb(boxes)
         for box, panel_file in zip(boxes, panel_files):
             items.append({
@@ -1469,7 +1473,9 @@ def make_panels_overlay_sequence(
                 hfg = fg_clips[i + 1].subclip(0, trans_dur)
                 tfg_faded = fg_fade(tfg, duration=trans_dur, fg_offset=fg_offset)
                 hfg_in = fg_fade(hfg, duration=trans_dur, fg_offset=fg_offset)
-                if hfg_in.mask is not None:
+                if hfg_in.mask is None:
+                    pass
+                else:
                     hfg_in = hfg_in.set_mask(hfg_in.mask.invert())
                 hfg_in = hfg_in.set_opacity(1.0)
                 tclip = _set_fps(

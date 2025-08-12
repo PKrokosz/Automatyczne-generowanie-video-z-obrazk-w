@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from pathlib import Path
 from PIL import Image, ImageDraw
 
@@ -37,7 +38,7 @@ def test_bg_is_stable_vs_fg_motion(tmp_path: Path) -> None:
         travel=0.3,
         trans_dur=0.0,
         parallax_bg=0.0,
-        parallax_fg=0.0,
+        parallax_fg=0.2,
         bg_blur=0.0,
     )
     frame1 = clip.get_frame(0.1)
@@ -60,7 +61,7 @@ def test_bg_is_stable_vs_fg_motion(tmp_path: Path) -> None:
     bg_delta = diff[~fg_mask].mean()
     if fg_delta == 0:
         pytest.skip("fg delta zero")
-    assert bg_delta < 1.3 * fg_delta
+    assert bg_delta < 0.5 * fg_delta
 
 
 def test_fg_fade_transition_background_static(tmp_path: Path) -> None:
