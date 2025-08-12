@@ -96,7 +96,7 @@ Below is the complete list of command-line options for `python -m ken_burns_reel
 | `--export-mode` | `` | `rect` | Panel export mode |
 | `--mode` | `` | `None` | classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli; panels-overlay: tło strona, foreground panel |
 | `--limit-items` | `` | `999` | Limit liczby paneli w overlay |
-| `--tight-border` | `` | `1` | Erozja konturu w eksporcie mask (px) |
+| `--tight-border` | `` | `1` | Erozja konturu w eksporcie mask (0–100 px) |
 | `--feather` | `` | `1` | Feather alpha w eksporcie mask (px) |
 | `--roughen` | `` | `0.15` | Nieregularność krawędzi maski (0..1) |
 | `--roughen-scale` | `` | `24` | Skala szumu dla roughen |
@@ -176,6 +176,11 @@ Below is the complete list of command-line options for `python -m ken_burns_reel
 | `--bg-vignette` | `` | `0.15` | Siła winiety tła |
 | `--look` | `` | `none` | Preset koloru tła |
 | `--items-from` | `` | `None` | Folder z maskami paneli |
+
+**Alias/deprecation notes:**
+
+- `--trans-dur` → `--transition-duration`
+- `--fg-only` → `--trans fg-fade`
 
 ## Advanced Options and Validation
 - `--validate` parses arguments and exits after reporting validation errors. It

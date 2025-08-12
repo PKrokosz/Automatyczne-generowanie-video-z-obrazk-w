@@ -15,7 +15,7 @@
 | --export-mode | str | rect | Panel export mode |
 | --mode | str | None | classic: dotychczasowy montaż; panels: ruch kamery po panelach komiksu; panels-items: montaż z pojedynczych paneli; panels-overlay: tło strona, foreground panel |
 | --limit-items | int | 999 | Limit liczby paneli w overlay |
-| --tight-border | int | 1 | Erozja konturu w eksporcie mask (px) |
+| --tight-border | int | 1 | Erozja konturu w eksporcie mask (0-100 px) |
 | --feather | int | 1 | Feather alpha w eksporcie mask (px) |
 | --roughen | float | 0.15 | Nieregularność krawędzi maski (0..1) |
 | --roughen-scale | int | 24 | Skala szumu dla roughen |
@@ -95,3 +95,8 @@
 | --bg-vignette | _parallax_type | 0.15 | Siła winiety tła |
 | --look | str | none | Preset koloru tła |
 | --items-from | str | None | Folder z maskami paneli |
+
+**Alias/deprecation notes:**
+
+- `--trans-dur` → `--transition-duration`
+- `--fg-only` → `--trans fg-fade`
