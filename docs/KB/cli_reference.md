@@ -76,7 +76,7 @@
 | --bpm | int | None | Ustaw tempo utworu (beats per minute) |
 | --beats-per-panel | float | 2.0 | Ile beatów na panel |
 | --beats-travel | float | 0.5 | Ile beatów przejazdu |
-| --readability-ms | int | 1400 | Minimalna ekspozycja panelu (ms) |
+| --readability-ms | int | 1400 | Minimalna ekspozycja panelu (ms, min 1400) |
 | --min-dwell | float | 1.0 | Minimalny czas zatrzymania (s) |
 | --max-dwell | float | 1.8 | Maksymalny czas zatrzymania (s) |
 | --settle-min | float | 0.12 | Minimalny czas settle (s) |

@@ -16,6 +16,7 @@ from .bin_config import resolve_imagemagick, resolve_tesseract
 from .builder import make_filmstrip, _export_profile, _fit_audio_clip
 from .layers import shadow_cache_stats
 from .ocr import verify_tesseract_available
+from .validate import validate_args
 
 
 def _page_scale_type(x: str) -> float:
@@ -637,6 +638,11 @@ def main(argv: list[str] | None = None) -> None:
         np.random.seed(args.seed)
         logging.info("deterministic build seed=%s", args.seed)
     if args.validate:
+        errs = validate_args(args)
+        if errs:
+            for e in errs:
+                print(f"validation error: {e}", file=sys.stderr)
+            raise SystemExit(1)
         return
     target_size = (1080, 1920)
     if args.size:
