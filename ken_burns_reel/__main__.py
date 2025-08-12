@@ -47,6 +47,13 @@ def _clamp_nonneg_int(x: str) -> int:
     return max(0, int(x))
 
 
+def _tight_border_type(x: str) -> int:
+    v = int(x)
+    if not 0 <= v <= 100:
+        raise argparse.ArgumentTypeError("--tight-border must be 0-100")
+    return v
+
+
 def _zoom_max_type(x: str) -> float:
     v = float(x)
     if v < 1.0:
@@ -289,7 +296,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--limit-items", type=int, default=999, help="Limit liczby paneli w overlay")
-    parser.add_argument("--tight-border", type=int, default=1, help="Erozja konturu w eksporcie mask (px)")
+    parser.add_argument(
+        "--tight-border",
+        type=_tight_border_type,
+        default=1,
+        help="Erozja konturu w eksporcie mask (px)",
+    )
     parser.add_argument("--feather", type=int, default=1, help="Feather alpha w eksporcie mask (px)")
     parser.add_argument(
         "--roughen",
