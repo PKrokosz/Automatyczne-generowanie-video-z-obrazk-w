@@ -9,6 +9,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
+from .validate import MIN_READ
+
 try:
     from moviepy.editor import (
         AudioFileClip,
@@ -428,6 +430,8 @@ def make_panels_cam_clip(
     """
     if easing is not None:
         travel_ease = "inout" if easing == "ease" else easing
+    min_read = MIN_READ
+    dwell = max(dwell, min_read)
     with Image.open(image_path) as im:
         W, H = im.size
         arr = apply_clahe_rgb(np.array(im))
@@ -476,7 +480,18 @@ def make_panels_cam_clip(
         return [lo + (w - wmin) * (hi - lo) / (wmax - wmin) for w in ws]
 
     norm_w = normalize_weights(weights)
-    dwell_times = [dwell * w * dwell_scale for w in norm_w]
+    dwell_times: List[float] = []
+    for idx, w in enumerate(norm_w):
+        dt = dwell * w * dwell_scale
+        if dt < min_read:
+            logging.warning(
+                "segment %d dwell %.2fs < min_read %.2fs; increase --dwell or --dwell-scale",
+                idx,
+                dt,
+                min_read,
+            )
+            dt = min_read
+        dwell_times.append(dt)
 
     base = _set_fps(ImageClip(arr).set_duration(1), fps)
     underlay0 = _make_underlay(arr, target_size, bg_mode)
@@ -941,6 +956,8 @@ def make_panels_overlay_sequence(
             settle_min,
             settle_max,
         )
+    min_read = readability_ms / 1000.0
+    dwell = max(dwell, min_read)
 
     # prepare per-segment timing and optional quantization
     @dataclass

@@ -157,7 +157,7 @@ Below is the complete list of command-line options for `python -m ken_burns_reel
 | `--bpm` | `` | `None` | Ustaw tempo utworu (beats per minute) |
 | `--beats-per-panel` | `` | `2.0` | Ile beatów na panel |
 | `--beats-travel` | `` | `0.5` | Ile beatów przejazdu |
-| `--readability-ms` | `` | `1400` | Minimalna ekspozycja panelu (ms) |
+| `--readability-ms` | `` | `1400` | Minimalna ekspozycja panelu (ms, min 1400) |
 | `--min-dwell` | `` | `1.0` | Minimalny czas zatrzymania (s) |
 | `--max-dwell` | `` | `1.8` | Maksymalny czas zatrzymania (s) |
 | `--settle-min` | `` | `0.12` | Minimalny czas settle (s) |
@@ -178,7 +178,9 @@ Below is the complete list of command-line options for `python -m ken_burns_reel
 | `--items-from` | `` | `None` | Folder z maskami paneli |
 
 ## Advanced Options and Validation
-- `--validate` parses arguments and exits after reporting validation errors.
+- `--validate` parses arguments and exits after reporting validation errors. It
+  verifies that flags such as `--dwell`, `--min-dwell`, and `--beats-per-panel`
+  do not shorten visible segments below the 1.4 s readability guard.
 - `--deterministic` seeds Python and NumPy RNGs (use with `--seed`) for reproducible motion.
 - Caching: `layers.page_shadow` caches generated shadows; cache stats are logged in `--profile perf`.
 - Tests use golden images and JSON logs; the `--look` option in `tests/test_overlay_lift.py` writes reference frames for docs/LOOK.md.
