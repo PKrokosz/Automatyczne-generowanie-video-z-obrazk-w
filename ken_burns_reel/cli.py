@@ -9,6 +9,14 @@ from typing import List
 import numpy as np
 
 
+def _tight_border_type(x: str) -> int:
+    """Clamp ``--tight-border`` to ``0..100``."""
+    v = int(x)
+    if not 0 <= v <= 100:
+        raise argparse.ArgumentTypeError("--tight-border must be 0-100")
+    return v
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Ken Burns Reel helper CLI")
     parser.add_argument("--trans", default="none", help="Transition type")
@@ -37,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bg-offset", type=float, default=0.0)
     parser.add_argument("--fg-offset", type=float, default=0.0)
     parser.add_argument("--min-read", type=float, default=1.4)
+    parser.add_argument(
+        "--tight-border",
+        type=_tight_border_type,
+        default=1,
+        help="Erode mask edge in panel export (0-100 px)",
+    )
     parser.add_argument("--drift-x", type=float, default=0.0)
     parser.add_argument("--drift-y", type=float, default=0.0)
     parser.add_argument("--rot-deg", type=float, default=0.0)
@@ -79,6 +93,7 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append("--rot-deg out of range")
     if not (0.0 <= args.parallax <= 0.06):
         errors.append("--parallax out of range")
+
     if args.detect_bubbles == "on" and args.bubble_min_area <= 0:
         errors.append("--bubble-min-area must be > 0")
     if not (0.0 <= args.bubble_roundness_min <= 1.0):
@@ -90,6 +105,10 @@ def validate_args(args: argparse.Namespace) -> list[str]:
 
 def main(argv: List[str] | None = None) -> None:
     parser = build_parser()
+    if argv is None:
+        argv = sys.argv[1:]
+    if "--trans-dur" in argv:
+        logging.warning("--trans-dur is deprecated; use --transition-duration")
     args = parser.parse_args(argv)
 
     if args.fg_only:

@@ -207,6 +207,7 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
+
             bubble_lift=getattr(args, "bubble_lift", False),
             detect_bubbles=args.detect_bubbles == "on",
             bubble_min_area=args.bubble_min_area,
@@ -902,6 +903,7 @@ def main(argv: list[str] | None = None) -> None:
             bg_drift_speed=getattr(args, "bg_drift_speed", 0.0),
             fg_drift_zoom=getattr(args, "fg_drift_zoom", 0.0),
             fg_drift_speed=getattr(args, "fg_drift_speed", 0.0),
+
             travel_path=args.travel_path,
             deep_bottom_glow=args.deep_bottom_glow,
             look=args.look,
