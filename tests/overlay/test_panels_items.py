@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import cv2
+import pytest
 from PIL import Image
 
 from ken_burns_reel.panels import export_panels
@@ -21,11 +21,9 @@ except ModuleNotFoundError:  # moviepy >=2.0
     from moviepy import ColorClip
 
 
-def _make_test_page(tmp_path):
+def _make_test_page(tmp_path, cv2):
     arr = np.full((100, 200, 3), 255, dtype=np.uint8)
     # two dark panels
-    import cv2
-
     cv2.rectangle(arr, (10, 10), (90, 90), (0, 0, 0), -1)
     cv2.rectangle(arr, (110, 10), (190, 90), (0, 0, 0), -1)
     p = tmp_path / "page.png"
@@ -33,7 +31,7 @@ def _make_test_page(tmp_path):
     return p
 
 
-def _make_page_for_anchored(tmp_path):
+def _make_page_for_anchored(tmp_path, cv2):
     arr = np.full((900, 600, 3), 200, dtype=np.uint8)
     cv2.rectangle(arr, (50, 50), (250, 350), (0, 0, 0), -1)
     cv2.rectangle(arr, (50, 50), (250, 350), (255, 255, 255), 3)
@@ -45,7 +43,8 @@ def _make_page_for_anchored(tmp_path):
 
 
 def test_export_panels_rect_and_mask(tmp_path):
-    page = _make_test_page(tmp_path)
+    cv2 = pytest.importorskip("cv2")
+    page = _make_test_page(tmp_path, cv2)
     out_rect = tmp_path / "rect"
     paths = export_panels(str(page), str(out_rect), mode="rect")
     assert len(paths) == 2
@@ -61,7 +60,8 @@ def test_export_panels_rect_and_mask(tmp_path):
 
 
 def test_overlay_anchored_projection(tmp_path):
-    page = _make_page_for_anchored(tmp_path)
+    cv2 = pytest.importorskip("cv2")
+    page = _make_page_for_anchored(tmp_path, cv2)
     mask_dir = tmp_path / "mask" / "page_0001"
     export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
     clip = make_panels_overlay_sequence(
@@ -110,6 +110,7 @@ def test_smear_transition_basic():
 
 
 def test_export_panels_gutter_thicken(tmp_path):
+    cv2 = pytest.importorskip("cv2")
     arr = np.zeros((80, 120, 3), np.uint8)
     cv2.line(arr, (60, 0), (60, 79), (255, 255, 255), 1)
     page = tmp_path / "page.png"
@@ -145,7 +146,8 @@ def test_make_panels_items_sequence_duration(tmp_path):
 
 
 def test_overlay_center_and_fit(tmp_path):
-    page = _make_test_page(tmp_path)
+    cv2 = pytest.importorskip("cv2")
+    page = _make_test_page(tmp_path, cv2)
     mask_dir = tmp_path / "mask" / "page_0001"
     paths = export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
     clip = make_panels_overlay_sequence(
@@ -167,7 +169,8 @@ def test_overlay_center_and_fit(tmp_path):
 
 
 def test_overlay_background_moves(tmp_path):
-    page = _make_test_page(tmp_path)
+    cv2 = pytest.importorskip("cv2")
+    page = _make_test_page(tmp_path, cv2)
     mask_dir = tmp_path / "mask" / "page_0001"
     export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
     clip = make_panels_overlay_sequence(
@@ -185,7 +188,7 @@ def test_overlay_background_moves(tmp_path):
 
 def test_smear_bg_crossfade_fg_edges():
     from moviepy.editor import ColorClip, ImageClip
-    import cv2
+    cv2 = pytest.importorskip("cv2")
     import numpy as np
 
     bg1 = ColorClip(size=(50, 50), color=(255, 0, 0)).set_duration(1).set_fps(24)
@@ -215,7 +218,8 @@ def test_smear_bg_crossfade_fg_edges():
 
 
 def test_overlay_travel_ease(tmp_path):
-    page = _make_test_page(tmp_path)
+    cv2 = pytest.importorskip("cv2")
+    page = _make_test_page(tmp_path, cv2)
     mask_dir = tmp_path / "mask" / "page_0001"
     export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
     # make foreground transparent to examine background crop directly
@@ -268,7 +272,8 @@ def test_overlay_travel_ease(tmp_path):
 
 
 def test_overlay_parallax_fg(tmp_path):
-    page = _make_test_page(tmp_path)
+    cv2 = pytest.importorskip("cv2")
+    page = _make_test_page(tmp_path, cv2)
     mask_dir = tmp_path / "mask" / "page_0001"
     export_panels(str(page), str(mask_dir), mode="mask", bleed=0, tight_border=0, feather=1)
     clip = make_panels_overlay_sequence(
@@ -289,6 +294,7 @@ def test_overlay_parallax_fg(tmp_path):
 
 
 def test_overlay_enhance_applied(tmp_path):
+    cv2 = pytest.importorskip("cv2")
     arr = np.full((100, 200, 3), 255, dtype=np.uint8)
     cv2.rectangle(arr, (10, 10), (90, 90), (200, 200, 200), -1)
     cv2.rectangle(arr, (10, 10), (90, 90), (0, 0, 0), 2)
@@ -350,7 +356,7 @@ def test_smear_bg_brightness_dip():
 def test_overlay_clip_no_broadcast(tmp_path):
     from PIL import Image
     import numpy as np
-    import cv2
+    cv2 = pytest.importorskip("cv2")
     from ken_burns_reel.panels import export_panels
     from ken_burns_reel.builder import make_panels_overlay_sequence
 
@@ -380,6 +386,7 @@ def test_overlay_clip_no_broadcast(tmp_path):
 
 
 def test_no_broadcast_overlay_clip(tmp_path):
+    cv2 = pytest.importorskip("cv2")
     arr = np.full((300, 200, 3), 255, np.uint8)
     cv2.rectangle(arr, (0, 10), (90, 290), (0, 0, 0), -1)
     cv2.rectangle(arr, (110, 10), (199, 290), (0, 0, 0), -1)
