@@ -9,11 +9,12 @@ Box = Tuple[int, int, int, int]
 
 
 def _build_panels_mask(mask_white: np.ndarray, gutter_thicken: int = 0) -> np.ndarray:
-    if gutter_thicken > 0:
-        kernel_g = cv2.getStructuringElement(
-            cv2.MORPH_RECT, (gutter_thicken, gutter_thicken)
-        )
-        mask_white = cv2.dilate(mask_white, kernel_g, iterations=1)
+    if gutter_thicken <= 0:
+        kernel = np.ones((3, 3), np.uint8)
+        mask_white = cv2.morphologyEx(mask_white, cv2.MORPH_CLOSE, kernel)
+    else:
+        k = int(gutter_thicken)
+        mask_white = cv2.dilate(mask_white, np.ones((k, k), np.uint8), iterations=1)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
     gutters = cv2.morphologyEx(mask_white, cv2.MORPH_CLOSE, kernel, iterations=1)
     panels_mask = cv2.bitwise_not(gutters)
@@ -316,8 +317,9 @@ def export_panels(
             holes_ratio = 1.0 - float(bin_alpha.sum()) / float(panel_area)
             if holes_ratio > mask_rect_fallback:
                 alpha = np.full_like(alpha, 255)
+            alpha[alpha < 128] = 0
             rgba = np.dstack([crop, alpha])
-            im_out = Image.fromarray(rgba, mode="RGBA")
+            im_out = Image.fromarray(rgba, "RGBA")
         else:
             alpha = np.full((crop.shape[0], crop.shape[1], 1), 255, dtype=np.uint8)
             rgba = np.concatenate([crop, alpha], axis=2)
