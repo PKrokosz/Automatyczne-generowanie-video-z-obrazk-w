@@ -862,7 +862,7 @@ def make_panels_overlay_sequence(
     bg_offset: float = 0.0,
     fg_offset: float = 0.0,
     seed: int = 0,
-    travel_path: str = "linear",
+    travel_path: str = "arc",
     deep_bottom_glow: float = 0.0,
     look: str = "none",
     timing_profile: str = "free",

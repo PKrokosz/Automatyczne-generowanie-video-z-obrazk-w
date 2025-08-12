@@ -25,4 +25,8 @@ def validate_args(args: Namespace) -> List[str]:
             errors.append(
                 "--beats-per-panel with --bpm shortens dwell below min_read"
             )
+    for name in ("parallax_bg", "parallax_fg"):
+        val = getattr(args, name, 0.0)
+        if val < 0.0 or val > 0.06:
+            errors.append(f"--{name.replace('_', '-')} out of range")
     return errors
