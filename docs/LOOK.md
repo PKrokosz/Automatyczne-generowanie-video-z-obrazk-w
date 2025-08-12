@@ -29,3 +29,12 @@ pytest tests/test_overlay_lift.py --look
 ```
 
 All outputs will appear in the local `artifacts/` directory.
+
+## Bubble overlay
+
+The bubble layer ensures speech balloons render above panels without being clipped.
+Use tests to generate reference frames:
+
+```bash
+pytest tests/test_bubbles.py --look
+```

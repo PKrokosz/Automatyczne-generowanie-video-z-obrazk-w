@@ -59,6 +59,12 @@ import numpy as np
 from .panels import detect_panels, order_panels_lr_tb, alpha_bbox
 import cv2
 from .utils import gaussian_blur, _set_fps
+from .bubbles import (
+    detect_bubbles,
+    bubble_sprite_from_page,
+    BubbleSprite,
+    overlay_bubble_lift,
+)
 
 
 SOFT_SNAP_MAX = 0.065
@@ -873,6 +879,11 @@ def make_panels_overlay_sequence(
     trans: str = "smear",
     trans_dur: float = 0.3,
     smear_strength: float = 1.0,
+    bubble_lift: bool = False,
+    detect_bubbles: bool = False,
+    bubble_min_area: int = 200,
+    bubble_roundness_min: float = 0.3,
+    bubble_feather_px: int = 2,
 ) -> CompositeVideoClip:
     """Render overlay sequence with static foreground panels."""
 
@@ -891,6 +902,44 @@ def make_panels_overlay_sequence(
             Wpage, Hpage, (0, 0, Wpage, Hpage), target_size
         )
         page_frame = (cx_pg, cy_pg, win_w_pg, win_h_pg)
+
+        bubbles_sprites: List[BubbleSprite] = []
+        if detect_bubbles:
+            data = page_ocr_data(Image.fromarray(page_arr))
+            ocr_boxes = []
+            for x, y, w, h, txt in zip(
+                data.get("left", []),
+                data.get("top", []),
+                data.get("width", []),
+                data.get("height", []),
+                data.get("text", []),
+            ):
+                if not str(txt).strip():
+                    continue
+                ocr_boxes.append((int(x), int(y), int(w), int(h)))
+            detected = detect_bubbles(
+                page_arr,
+                ocr_boxes,
+                {
+                    "min_area": bubble_min_area,
+                    "roundness_min": bubble_roundness_min,
+                    "feather_px": bubble_feather_px,
+                },
+            )
+            scale_pg = target_size[0] / win_w_pg
+            pg_w = int(round(Wpage * scale_pg))
+            pg_h = int(round(Hpage * scale_pg))
+            pg_x0 = (target_size[0] - pg_w) // 2
+            pg_y0 = (target_size[1] - pg_h) // 2
+            for b in detected:
+                spr = bubble_sprite_from_page(page_arr, b)
+                x_b, y_b, bw, bh = spr.bbox
+                sw = int(round(bw * scale_pg))
+                sh = int(round(bh * scale_pg))
+                img = cv2.resize(spr.img, (sw, sh), interpolation=cv2.INTER_CUBIC)
+                sx = pg_x0 + int(round(x_b * scale_pg))
+                sy = pg_y0 + int(round(y_b * scale_pg))
+                bubbles_sprites.append(BubbleSprite(img=img, bbox=(sx, sy, sw, sh)))
         panel_folder = os.path.join(panels_dir, f"page_{idx:04d}")
         panel_files = sorted(glob.glob(os.path.join(panel_folder, "panel_*.png")))
         if not boxes or len(boxes) != len(panel_files):
@@ -915,6 +964,7 @@ def make_panels_overlay_sequence(
                 "panel": panel_file,
                 "box": box,
                 "frame": page_frame,
+                "bubbles": bubbles_sprites,
             })
             if len(items) >= limit_items:
                 break
@@ -1258,6 +1308,11 @@ def make_panels_overlay_sequence(
                 if glow_map is not None:
                     _add_rgb_clipped(canvas[:, :, :3], glow_map, x_pos, y_pos)
                 _paste_rgba_clipped(canvas, use_overlay, x_pos, y_pos)
+                for spr in it.get("bubbles", []):
+                    if bubble_lift:
+                        overlay_bubble_lift(canvas[:, :, :3], spr, t)
+                    else:
+                        _paste_rgba_clipped(canvas, spr.img, spr.bbox[0], spr.bbox[1])
                 return canvas[:, :, :3]
 
             def make_fg_mask(t, overlay=resized, seg_start=start, seg_idx=i):

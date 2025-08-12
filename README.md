@@ -62,6 +62,35 @@ python -m ken_burns_reel input_folder ^
   --transition-duration 0.3
 ```
 
+### Speech bubble detection (2-page test)
+
+**PowerShell**
+```powershell
+python -m ken_burns_reel .\pages\1 `
+  --oneclick --mode panels-overlay `
+  --detect-bubbles on --bubble-mode mask --bubble-export masks `
+  --dwell 1.8 --travel 1.2 --trans fg-fade --transition-duration 0.25 `
+  --validate --deterministic --profile perf
+```
+
+**Bash**
+```bash
+python -m ken_burns_reel ./pages/1 \
+  --oneclick --mode panels-overlay \
+  --detect-bubbles on --bubble-mode mask --bubble-export masks \
+  --dwell 1.8 --travel 1.2 --trans fg-fade --transition-duration 0.25 \
+  --validate --deterministic --profile perf
+```
+
+**CMD**
+```cmd
+python -m ken_burns_reel pages\1 ^
+  --oneclick --mode panels-overlay ^
+  --detect-bubbles on --bubble-mode mask --bubble-export masks ^
+  --dwell 1.8 --travel 1.2 --trans fg-fade --transition-duration 0.25 ^
+  --validate --deterministic --profile perf
+```
+
 ## Pipeline
 1. **Import** – images and optional audio are loaded.
 2. **Panel Detection** – `panels.py` locates panels and exports masks if requested.

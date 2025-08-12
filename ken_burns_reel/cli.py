@@ -41,6 +41,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--drift-y", type=float, default=0.0)
     parser.add_argument("--rot-deg", type=float, default=0.0)
     parser.add_argument("--parallax", type=float, default=0.0)
+    parser.add_argument(
+        "--detect-bubbles",
+        choices=["on", "off"],
+        default="off",
+        help="Enable speech bubble detection",
+    )
+    parser.add_argument(
+        "--bubble-mode",
+        choices=["mask", "rect"],
+        default="mask",
+    )
+    parser.add_argument("--bubble-min-area", type=int, default=200)
+    parser.add_argument("--bubble-roundness-min", type=float, default=0.3)
+    parser.add_argument("--bubble-contrast-min", type=float, default=0.0)
+    parser.add_argument(
+        "--bubble-export",
+        choices=["none", "masks", "keyframes"],
+        default="none",
+    )
     return parser
 
 
@@ -60,6 +79,12 @@ def validate_args(args: argparse.Namespace) -> list[str]:
         errors.append("--rot-deg out of range")
     if not (0.0 <= args.parallax <= 0.06):
         errors.append("--parallax out of range")
+    if args.detect_bubbles == "on" and args.bubble_min_area <= 0:
+        errors.append("--bubble-min-area must be > 0")
+    if not (0.0 <= args.bubble_roundness_min <= 1.0):
+        errors.append("--bubble-roundness-min must be within [0,1]")
+    if args.bubble_contrast_min < 0.0:
+        errors.append("--bubble-contrast-min must be >= 0")
     return errors
 
 

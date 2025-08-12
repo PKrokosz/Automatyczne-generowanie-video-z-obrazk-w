@@ -207,6 +207,11 @@ def _run_oneclick(args: argparse.Namespace, target_size: tuple[int, int]) -> Non
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
+            bubble_lift=getattr(args, "bubble_lift", False),
+            detect_bubbles=args.detect_bubbles == "on",
+            bubble_min_area=args.bubble_min_area,
+            bubble_roundness_min=args.bubble_roundness_min,
+            bubble_feather_px=getattr(args, "bubble_feather_px", 2),
             bg_drift_zoom=getattr(args, "bg_drift_zoom", 0.0),
             bg_drift_speed=getattr(args, "bg_drift_speed", 0.0),
             fg_drift_zoom=getattr(args, "fg_drift_zoom", 0.0),
@@ -562,6 +567,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--overlay-jitter", "--jitter", dest="overlay_jitter", type=float, default=0.0, help="Subtelny mikro-ruch overlay (px)")
     parser.add_argument("--overlay-frame-px", type=_clamp_nonneg_int, default=0, help="Grubość ramki overlay (px)")
     parser.add_argument("--overlay-frame-color", default="#000000", help="Kolor ramki overlay w formacie #RRGGBB")
+    parser.add_argument("--detect-bubbles", choices=["on", "off"], default="off")
+    parser.add_argument("--bubble-mode", choices=["mask", "rect"], default="mask")
+    parser.add_argument("--bubble-min-area", type=int, default=200)
+    parser.add_argument("--bubble-roundness-min", type=float, default=0.3)
+    parser.add_argument("--bubble-contrast-min", type=float, default=0.0)
+    parser.add_argument("--bubble-export", choices=["none", "masks", "keyframes"], default="none")
     parser.add_argument("--bg-offset", type=float, default=0.0, help="Opóźnienie ruchu tła (s)")
     parser.add_argument("--fg-offset", type=float, default=0.0, help="Opóźnienie ruchu panelu (s)")
     parser.add_argument("--seed", type=int, default=0, help="Seed deterministycznego driftu")
@@ -586,6 +597,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if argv and "--xfade" in argv:
         print("⚠️ --xfade is deprecated, use --transition-duration", file=sys.stderr)
 
+    if isinstance(getattr(args, "bubbles", None), dict):
+        bconf = args.bubbles
+        if "lift" in bconf:
+            args.bubble_lift = bool(bconf.get("lift"))
+        if "feather_px" in bconf:
+            args.bubble_feather_px = int(bconf.get("feather_px"))
     if args.mode is None:
         args.mode = "panels-overlay" if args.oneclick else "classic"
 
@@ -876,6 +893,11 @@ def main(argv: list[str] | None = None) -> None:
             bg_offset=args.bg_offset,
             fg_offset=args.fg_offset,
             seed=args.seed,
+            bubble_lift=getattr(args, "bubble_lift", False),
+            detect_bubbles=args.detect_bubbles == "on",
+            bubble_min_area=args.bubble_min_area,
+            bubble_roundness_min=args.bubble_roundness_min,
+            bubble_feather_px=getattr(args, "bubble_feather_px", 2),
             bg_drift_zoom=getattr(args, "bg_drift_zoom", 0.0),
             bg_drift_speed=getattr(args, "bg_drift_speed", 0.0),
             fg_drift_zoom=getattr(args, "fg_drift_zoom", 0.0),

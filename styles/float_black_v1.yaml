@@ -15,3 +15,10 @@ page_shadow:
 deep_bottom_glow: 0.1
 overlay_frame_px: 5
 bg_vignette: 0.4
+bubbles:
+  lift: true
+  feather_px: 2
+  shadow:
+    strength: 0.35
+    blur: 14
+    offset: [0, 6]
