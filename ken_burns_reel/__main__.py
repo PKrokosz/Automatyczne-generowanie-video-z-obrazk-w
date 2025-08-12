@@ -577,7 +577,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bg-offset", type=float, default=0.0, help="Opóźnienie ruchu tła (s)")
     parser.add_argument("--fg-offset", type=float, default=0.0, help="Opóźnienie ruchu panelu (s)")
     parser.add_argument("--seed", type=int, default=0, help="Seed deterministycznego driftu")
-    parser.add_argument("--travel-path", choices=["linear", "arc"], default="linear", help="Tor przejazdu kamery")
+    parser.add_argument("--travel-path", choices=["linear", "arc"], default="arc", help="Tor przejazdu kamery")
     parser.add_argument("--deep-bottom-glow", type=float, default=0.0, help="Poświata od dołu (0..1)")
     parser.add_argument("--page-scale-overlay", type=_page_scale_type, default=1.0, help="Skala strony przy overlay")
     parser.add_argument("--bg-vignette", type=_parallax_type, default=0.15, help="Siła winiety tła")
