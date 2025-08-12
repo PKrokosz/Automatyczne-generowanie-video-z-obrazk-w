@@ -878,6 +878,18 @@ def make_panels_overlay_sequence(
         page_frame = (cx_pg, cy_pg, win_w_pg, win_h_pg)
         panel_folder = os.path.join(panels_dir, f"page_{idx:04d}")
         panel_files = sorted(glob.glob(os.path.join(panel_folder, "panel_*.png")))
+        if not boxes or len(boxes) != len(panel_files):
+            boxes = []
+            for pf in panel_files:
+                with Image.open(pf) as pm:
+                    arr = np.array(pm.convert("RGBA"))
+                a = arr[:, :, 3]
+                ys, xs = np.where(a > 0)
+                if ys.size == 0 or xs.size == 0:
+                    continue
+                x0, y0, x1, y1 = xs.min(), ys.min(), xs.max(), ys.max()
+                boxes.append((int(x0), int(y0), int(x1 - x0 + 1), int(y1 - y0 + 1)))
+            boxes = order_panels_lr_tb(boxes)
         for box, panel_file in zip(boxes, panel_files):
             items.append({
                 "page": page_arr,
@@ -1258,34 +1270,21 @@ def make_panels_overlay_sequence(
                 return canvas[:, :, 3] / 255.0
 
         else:  # center mode
-            ph, pw = panel.shape[:2]
-            area_ratio = (ph * pw) / (Hpage * Wpage)
-            ofit = overlay_fit
-            if area_ratio < 0.08:
-                ofit = min(ofit, 0.72)
-            elif area_ratio > 0.25:
-                ofit = min(ofit, 0.64)
-            else:
-                ofit = min(ofit, 0.66)
-            scale = min(ofit * Hout / max(1, ph), Wout / max(1, pw))
-            nw = int(round(pw * scale))
-            nh = int(round(ph * scale))
-            dx_max = abs(cx1 - cx0) * parallax_fg * (Wout / win_w)
-            dy_max = abs(cy1 - cy0) * parallax_fg * (Hout / win_h)
-            max_w = Wout - 2 * (overlay_margin + dx_max)
-            max_h = Hout - 2 * (overlay_margin + dy_max)
-            if nw > max_w or nh > max_h:
-                scale = min(max_w / max(1, pw), max_h / max(1, ph))
-                nw, nh = int(round(pw * scale)), int(round(ph * scale))
-                logging.warning("overlay_fit reduced to avoid clipping")
-            nw = min(nw, Wout - 2 * overlay_margin)
-            nh = min(nh, Hout - 2 * overlay_margin)
-            x_base = (Wout - nw) // 2
-            y_base = (Hout - nh) // 2
-            x_base = max(overlay_margin, min(x_base, Wout - overlay_margin - nw))
-            y_base = max(overlay_margin, min(y_base, Hout - overlay_margin - nh))
-            resized = cv2.resize(panel, (nw, nh), interpolation=cv2.INTER_CUBIC)
+            pw, ph = panel.shape[1], panel.shape[0]
+            cw, ch = Wout, Hout
+            scale_h = (overlay_fit * ch) / max(1, ph)
+            scale_w = (overlay_fit * cw) / max(1, pw)
+            s = min(scale_h, scale_w)
+            fw, fh = int(round(pw * s)), int(round(ph * s))
+            x_base = (Wout - fw) // 2
+            y_base = (Hout - fh) // 2
+            resized = cv2.resize(panel, (fw, fh), interpolation=cv2.INTER_CUBIC)
+            rgb_panel = resized[:, :, :3]
             alpha_panel = resized[:, :, 3]
+            if overlay_pop > 1.0:
+                amt = overlay_pop - 1.0
+                blur = cv2.GaussianBlur(rgb_panel, (0, 0), 1)
+                rgb_panel = cv2.addWeighted(rgb_panel, 1 + amt, blur, -amt, 0)
             if overlay_edge == "feather":
                 sigma = max(1, int(overlay_edge_strength * 10))
                 alpha_panel = gaussian_blur(alpha_panel, sigma=sigma)
@@ -1306,12 +1305,13 @@ def make_panels_overlay_sequence(
                     _paste_rgba_clipped(canvas, ring_rgba, 0, 0)
                     _paste_rgba_clipped(canvas, resized, 0, 0)
                     resized = canvas
+                    rgb_panel = resized[:, :, :3]
                     alpha_panel = resized[:, :, 3]
             glow_rgb = None
             if fg_glow > 0:
                 glow = cv2.GaussianBlur(alpha_panel, (0, 0), fg_glow_blur)
                 glow_rgb = np.dstack([glow, glow, glow]).astype(np.float32) * fg_glow
-            resized = np.dstack([resized[:, :, :3], alpha_panel])
+            resized = np.dstack([rgb_panel, alpha_panel])
             mask_alpha = resized[:, :, 3]
             if fg_shadow_blur > 0:
                 shadow = cv2.GaussianBlur(mask_alpha, (0, 0), fg_shadow_blur)
@@ -1335,8 +1335,8 @@ def make_panels_overlay_sequence(
                     offy = (camy - cy0) * parallax_fg * scale_y
                 x_pos = int(round(xb + offx))
                 y_pos = int(round(yb + offy))
-                x_pos = max(0, min(x_pos, Wout - nw))
-                y_pos = max(0, min(y_pos, Hout - nh))
+                x_pos = max(0, min(x_pos, Wout - fw))
+                y_pos = max(0, min(y_pos, Hout - fh))
                 return x_pos, y_pos
 
             def make_fg_frame(t, overlay=resized, shadow_map=shadow, glow_map=glow_rgb, seg_start=start, seg_idx=i):
@@ -1351,16 +1351,16 @@ def make_panels_overlay_sequence(
                 dz, dx_d, dy_d, rot_d = motion.subtle_drift("fg", seg_seed, prog)
                 scale *= dz
                 x_pos, y_pos = _pos(t)
-                x_pos += int(round(dx_d * nw))
-                y_pos += int(round(dy_d * nh))
+                x_pos += int(round(dx_d * fw))
+                y_pos += int(round(dy_d * fh))
                 use_overlay = overlay
                 if scale != 1.0 or rot_d != 0.0:
-                    ow = max(1, int(round(nw * scale)))
-                    oh = max(1, int(round(nh * scale)))
+                    ow = max(1, int(round(fw * scale)))
+                    oh = max(1, int(round(fh * scale)))
                     use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
                     use_overlay = motion.apply_transform(use_overlay, 1.0, 0.0, 0.0, rot_d)
-                    x_pos += (nw - ow) // 2
-                    y_pos += (nh - oh) // 2
+                    x_pos += (fw - ow) // 2
+                    y_pos += (fh - oh) // 2
                 if overlay_jitter > 0:
                     frame_idx = int(round(t * fps))
                     rng = np.random.default_rng(1337 + seg_idx * 10000 + frame_idx)
@@ -1389,16 +1389,16 @@ def make_panels_overlay_sequence(
                 dz, dx_d, dy_d, rot_d = motion.subtle_drift("fg", seg_seed, prog)
                 scale *= dz
                 x_pos, y_pos = _pos(t)
-                x_pos += int(round(dx_d * nw))
-                y_pos += int(round(dy_d * nh))
+                x_pos += int(round(dx_d * fw))
+                y_pos += int(round(dy_d * fh))
                 use_overlay = overlay
                 if scale != 1.0 or rot_d != 0.0:
-                    ow = max(1, int(round(nw * scale)))
-                    oh = max(1, int(round(nh * scale)))
+                    ow = max(1, int(round(fw * scale)))
+                    oh = max(1, int(round(fh * scale)))
                     use_overlay = cv2.resize(overlay, (ow, oh), interpolation=cv2.INTER_CUBIC)
                     use_overlay = motion.apply_transform(use_overlay, 1.0, 0.0, 0.0, rot_d)
-                    x_pos += (nw - ow) // 2
-                    y_pos += (nh - oh) // 2
+                    x_pos += (fw - ow) // 2
+                    y_pos += (fh - oh) // 2
                 if overlay_jitter > 0:
                     frame_idx = int(round(t * fps))
                     rng = np.random.default_rng(1337 + seg_idx * 10000 + frame_idx)
@@ -1468,9 +1468,10 @@ def make_panels_overlay_sequence(
                 tfg = tail_fg.subclip(seg_dur, seg_dur + trans_dur)
                 hfg = fg_clips[i + 1].subclip(0, trans_dur)
                 tfg_faded = fg_fade(tfg, duration=trans_dur, fg_offset=fg_offset)
-                hfg_in = fg_fade(
-                    hfg, duration=trans_dur, fg_offset=fg_offset
-                ).fx(lambda c: c.invert_mask())
+                hfg_in = fg_fade(hfg, duration=trans_dur, fg_offset=fg_offset)
+                if hfg_in.mask is not None:
+                    hfg_in = hfg_in.set_mask(hfg_in.mask.invert())
+                hfg_in = hfg_in.set_opacity(1.0)
                 tclip = _set_fps(
                     CompositeVideoClip(
                         [tbg, tfg_faded, hfg_in], size=target_size
